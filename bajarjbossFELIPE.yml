@@ -1,0 +1,14 @@
+---
+- name: STOP ALL JBOSS - T24 Standalone
+  hosts: all
+  gather_facts: no
+
+  tasks:
+    - name: Ejecutar script STOP_ALL_JBOSS.ps1
+      win_shell: |
+        powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Users\t24admin\Desktop\START_T24\STOP_ALL_JBOSS.ps1"
+      register: stop_jboss_result
+
+    - name: Mostrar salida del script
+      debug:
+        var: stop_jboss_result.stdout
