@@ -1,0 +1,58 @@
+---
+- name: Crear script STOP_ALL_JBOSS.ps1 dinámico
+  hosts: all
+  gather_facts: no
+
+  vars:
+    jboss_base_path: 'C:\Temenos\R18\3rdParty\As'
+    script_path: 'C:\Users\t24admin\Desktop\START_T24\STOP_ALL_JBOSS.ps1'
+
+  tasks:
+
+    - name: Obtener carpetas de JBoss
+      win_find:
+        paths: "{{ jboss_base_path }}"
+        file_type: directory
+      register: jboss_dirs
+
+    - name: Filtrar JBoss secundarios (excluir principal)
+      set_fact:
+        jboss_secondary: >-
+          {{ jboss_dirs.files
+             | map(attribute='filename')
+             | reject('equalto', 'jboss-eap-7.2')
+             | list }}
+
+    - name: Validar que existan exactamente 2 JBoss secundarios
+      fail:
+        msg: "No se encontraron exactamente 2 JBoss secundarios en {{ jboss_base_path }}"
+      when: jboss_secondary | length != 2
+
+    - name: Crear script STOP_ALL_JBOSS.ps1
+      win_copy:
+        dest: "{{ script_path }}"
+        content: |
+          Write-Host "==========================================="
+          Write-Host "  INICIO APAGADO AUTOMATICO JBoss"
+          Write-Host "==========================================="
+
+          # -------- JBoss Principal --------
+          $JBOSS_CLI = "{{ jboss_base_path }}\jboss-eap-7.2\bin\jboss-cli.ps1"
+          Write-Host "Apagando JBoss Principal..."
+          & $JBOSS_CLI --connect --controller=localhost:9990 --command="shutdown"
+          Start-Sleep -Seconds 5
+
+          # -------- JBoss Secundario 1 --------
+          $JBOSS_CLI = "{{ jboss_base_path }}\{{ jboss_secondary[0] }}\bin\jboss-cli.ps1"
+          Write-Host "Apagando JBoss Secundario 1 ({{ jboss_secondary[0] }})..."
+          & $JBOSS_CLI --connect --controller=localhost:10090 --command="shutdown"
+          Start-Sleep -Seconds 5
+
+          # -------- JBoss Secundario 2 --------
+          $JBOSS_CLI = "{{ jboss_base_path }}\{{ jboss_secondary[1] }}\bin\jboss-cli.ps1"
+          Write-Host "Apagando JBoss Secundario 2 ({{ jboss_secondary[1] }})..."
+          & $JBOSS_CLI --connect --controller=localhost:10190 --command="shutdown"
+
+          Write-Host "==========================================="
+          Write-Host "  APAGADO FINALIZADO CORRECTAMENTE"
+          Write-Host "==========================================="
