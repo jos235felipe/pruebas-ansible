@@ -1,33 +1,31 @@
----
-- name: Arranque directo de JBoss (sin BAT)
-  hosts: all
+- name: Arranque directo de JBoss (background real)
+  hosts: windows
   gather_facts: no
-
-  vars:
-    jboss_base_path: 'C:\Temenos\R18\3rdParty\As'
-
   tasks:
 
     - name: Obtener carpetas JBoss
       win_find:
-        paths: "{{ jboss_base_path }}"
+        paths: C:\Temenos\R18\3rdParty\As
         file_type: directory
       register: jboss_dirs
 
     - name: Construir lista de instancias JBoss
       set_fact:
         jboss_instances: >-
-          {{ jboss_dirs.files
-             | map(attribute='filename')
-             | list }}
+          {{
+            jboss_dirs.files
+            | map(attribute='path')
+            | map('basename')
+            | list
+          }}
 
     - name: Mostrar instancias detectadas
       debug:
         var: jboss_instances
 
-    - name: Arrancar cada instancia JBoss
+    - name: Arrancar cada instancia JBoss en background
       win_shell: |
-        cmd.exe /c "{{ jboss_base_path }}\{{ item }}\bin\standalone.bat"
+        $jbossPath = "C:\Temenos\R18\3rdParty\As\{{ item }}\bin\standalone.ps1"
+        Write-Host "Arrancando {{ item }}"
+        Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -File `"$jbossPath`"" -WindowStyle Minimized
       loop: "{{ jboss_instances }}"
-      async: 60
-      poll: 0
