@@ -1,31 +1,80 @@
-- name: Arranque directo de JBoss (background real)
-  hosts: windows
+- name: Arranque y validación de JBoss (detección dinámica + puertos)
+  hosts: Pruebas_Felipe
   gather_facts: no
+
+  vars:
+    jboss_base_path: 'C:\Temenos\R18\3rdParty\As'
+
+    # Mapa de instancias → puerto de management
+    jboss_ports:
+      jboss-eap-7.2: 9990
+      T24Prod01LL: 10090
+      T24Prod02LL: 10190
+
   tasks:
 
-    - name: Obtener carpetas JBoss
+    - name: Detectar carpetas JBoss existentes
       win_find:
-        paths: C:\Temenos\R18\3rdParty\As
+        paths: "{{ jboss_base_path }}"
         file_type: directory
+        depth: 1
       register: jboss_dirs
 
     - name: Construir lista de instancias JBoss
       set_fact:
         jboss_instances: >-
-          {{
-            jboss_dirs.files
-            | map(attribute='path')
-            | map('basename')
-            | list
-          }}
+          {{ jboss_dirs.files
+             | map(attribute='path')
+             | map('basename')
+             | list }}
 
     - name: Mostrar instancias detectadas
       debug:
         var: jboss_instances
 
-    - name: Arrancar cada instancia JBoss en background
+    - name: Arrancar cada instancia JBoss
       win_shell: |
-        $jbossPath = "C:\Temenos\R18\3rdParty\As\{{ item }}\bin\standalone.ps1"
-        Write-Host "Arrancando {{ item }}"
-        Start-Process powershell -ArgumentList "-ExecutionPolicy Bypass -File `"$jbossPath`"" -WindowStyle Minimized
+        Write-Host "==========================================="
+        Write-Host "Arrancando JBoss: {{ item }}"
+        Write-Host "==========================================="
+
+        $standalone = "{{ jboss_base_path }}\{{ item }}\bin\standalone.bat"
+
+        if (Test-Path $standalone) {
+            Start-Process -FilePath $standalone `
+                          -WorkingDirectory (Split-Path $standalone) `
+                          -WindowStyle Minimized
+        }
+        else {
+            Write-Host "No existe standalone.bat en {{ item }}" -ForegroundColor Yellow
+        }
+      args:
+        executable: powershell.exe
+      loop: "{{ jboss_instances }}"
+      become: yes
+      become_method: runas
+      become_user: Administrator
+
+    - name: Esperar arranque inicial
+      pause:
+        seconds: 20
+
+    - name: Validar puertos de management JBoss
+      win_shell: |
+        $port = {{ jboss_ports[item] | default(0) }}
+
+        if ($port -eq 0) {
+            Write-Host "No hay puerto definido para {{ item }}" -ForegroundColor Yellow
+            exit 0
+        }
+
+        $listening = netstat -ano | findstr ":$port"
+
+        if ($listening) {
+            Write-Host "[OK] {{ item }} escuchando en puerto $port" -ForegroundColor Green
+        }
+        else {
+            Write-Host "[ERROR] {{ item }} NO escucha en puerto $port" -ForegroundColor Red
+            exit 1
+        }
       loop: "{{ jboss_instances }}"
