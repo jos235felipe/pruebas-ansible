@@ -1,0 +1,33 @@
+---
+- name: Arranque directo de JBoss (sin BAT)
+  hosts: all
+  gather_facts: no
+
+  vars:
+    jboss_base_path: 'C:\Temenos\R18\3rdParty\As'
+
+  tasks:
+
+    - name: Obtener carpetas JBoss
+      win_find:
+        paths: "{{ jboss_base_path }}"
+        file_type: directory
+      register: jboss_dirs
+
+    - name: Construir lista de instancias JBoss
+      set_fact:
+        jboss_instances: >-
+          {{ jboss_dirs.files
+             | map(attribute='filename')
+             | list }}
+
+    - name: Mostrar instancias detectadas
+      debug:
+        var: jboss_instances
+
+    - name: Arrancar cada instancia JBoss
+      win_shell: |
+        cmd.exe /c "{{ jboss_base_path }}\{{ item }}\bin\standalone.bat"
+      loop: "{{ jboss_instances }}"
+      async: 60
+      poll: 0
