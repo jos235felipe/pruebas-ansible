@@ -1,0 +1,98 @@
+---
+- name: Limpieza JBoss + TAFJEE (dinámica)
+  hosts: all
+  gather_facts: no
+
+  vars:
+    base_path: 'C:\Temenos\R18\3rdParty\As'
+    tafjee_log_path: 'C:\Temenos\R18\TAFJ\log'
+    script_path: 'C:\Windows\Temp\cleanup_jboss_tafjee.ps1'
+
+  tasks:
+
+    - name: Detectar carpetas JBoss
+      win_find:
+        paths: "{{ base_path }}"
+        file_type: directory
+      register: jboss_dirs
+
+    - name: Identificar JBoss secundarios
+      set_fact:
+        jboss_secondary: >-
+          {{ jboss_dirs.files
+             | map(attribute='filename')
+             | reject('equalto', 'jboss-eap-7.2')
+             | list }}
+
+    - name: Validar estructura JBoss
+      fail:
+        msg: >
+          Estructura inválida. Se esperaban 2 JBoss secundarios y se encontraron
+          {{ jboss_secondary | length }} en {{ base_path }}
+      when: jboss_secondary | length != 2
+
+    - name: Crear script PowerShell de limpieza
+      win_copy:
+        dest: "{{ script_path }}"
+        content: |
+          # ==============================================================================
+          # Limpieza JBoss + TAFJEE (GENERADO POR ANSIBLE AWX)
+          # ==============================================================================
+
+          Write-Host "===========================================" -ForegroundColor Cyan
+          Write-Host " INICIO LIMPIEZA JBoss + TAFJEE" -ForegroundColor Cyan
+          Write-Host "===========================================" -ForegroundColor Cyan
+
+          # -----------------------------
+          # FASE 0 - TAFJEE
+          # -----------------------------
+          $tafjeeLogPath = "{{ tafjee_log_path }}"
+
+          if (Test-Path $tafjeeLogPath) {
+              Write-Host "Limpiando logs TAFJEE: $tafjeeLogPath" -ForegroundColor Gray
+              Remove-Item "$tafjeeLogPath\*" -Recurse -Force -ErrorAction SilentlyContinue
+          } else {
+              Write-Host "TAFJEE no existe, se omite" -ForegroundColor DarkGray
+          }
+
+          Start-Sleep -Seconds 3
+
+          # -----------------------------
+          # FASE 1 - JBoss
+          # -----------------------------
+          $basePath = "{{ base_path }}"
+          $instancias = @(
+              "jboss-eap-7.2",
+              "{{ jboss_secondary[0] }}",
+              "{{ jboss_secondary[1] }}"
+          )
+
+          $carpetas = @("data", "log", "tmp")
+          $marcadores = @("*.deployed","*.failed","*.isdeploying","*.undeployed","*.pending")
+
+          foreach ($instancia in $instancias) {
+
+              Write-Host "`nProcesando instancia: $instancia" -ForegroundColor Green
+
+              foreach ($carpeta in $carpetas) {
+                  $path = Join-Path $basePath "$instancia\standalone\$carpeta"
+                  if (Test-Path $path) {
+                      Remove-Item "$path\*" -Recurse -Force -ErrorAction SilentlyContinue
+                  }
+              }
+
+              $deployPath = Join-Path $basePath "$instancia\standalone\deployments"
+              if (Test-Path $deployPath) {
+                  foreach ($m in $marcadores) {
+                      Remove-Item "$deployPath\$m" -Force -ErrorAction SilentlyContinue
+                  }
+              }
+          }
+
+          Write-Host "`n===========================================" -ForegroundColor Cyan
+          Write-Host " LIMPIEZA FINALIZADA CORRECTAMENTE" -ForegroundColor Cyan
+          Write-Host "===========================================" -ForegroundColor Cyan
+
+    - name: Ejecutar limpieza PowerShell (modo admin por WinRM)
+      win_shell: |
+        powershell.exe -ExecutionPolicy Bypass -File "{{ script_path }}"
