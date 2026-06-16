@@ -1,80 +1,84 @@
-- name: Arranque y validación de JBoss (detección dinámica + puertos)
-  hosts: Pruebas_Felipe
+---
+- name: START JBOSS DINÁMICO T24
+  hosts: all
   gather_facts: no
 
-  vars:
-    jboss_base_path: 'C:\Temenos\R18\3rdParty\As'
-
-    # Mapa de instancias → puerto de management
-    jboss_ports:
-      jboss-eap-7.2: 9990
-      T24Prod01LL: 10090
-      T24Prod02LL: 10190
-
   tasks:
+    - name: Arranque dinámico de JBoss (principal + opcionales)
+      ansible.windows.win_powershell:
+        script: |
+          # =====================================
+# VARIABLES BASE
+# =====================================
+$AS_ROOT   = "C:\Temenos\R18\3rdParty\As"
+$JAVA_HOME = "C:\Temenos\R18\3rdParty\Java\jdk1.8.0_181"
+$TAFJ_HOME = "C:\Temenos\R18\TAFJ"
 
-    - name: Detectar carpetas JBoss existentes
-      win_find:
-        paths: "{{ jboss_base_path }}"
-        file_type: directory
-        depth: 1
-      register: jboss_dirs
+$env:JAVA_HOME = $JAVA_HOME
+$env:TAFJ_HOME = $TAFJ_HOME
+$env:PATH = "$JAVA_HOME\bin;$TAFJ_HOME\bin;$env:PATH"
 
-    - name: Construir lista de instancias JBoss
-      set_fact:
-        jboss_instances: >-
-          {{ jboss_dirs.files
-             | map(attribute='path')
-             | map('basename')
-             | list }}
+Write-Host "JAVA_HOME=$JAVA_HOME"
+Write-Host "TAFJ_HOME=$TAFJ_HOME"
+Write-Host "AS_ROOT=$AS_ROOT"
 
-    - name: Mostrar instancias detectadas
-      debug:
-        var: jboss_instances
+# =====================================
+# FUNCIÓN ARRANQUE JBOSS
+# =====================================
+function Start-JBoss {
+    param (
+        [string]$JBOSS_HOME,
+        [string]$Name
+    )
 
-    - name: Arrancar cada instancia JBoss
-      win_shell: |
-        Write-Host "==========================================="
-        Write-Host "Arrancando JBoss: {{ item }}"
-        Write-Host "==========================================="
+    $standalone = Join-Path $JBOSS_HOME "bin\standalone.bat"
 
-        $standalone = "{{ jboss_base_path }}\{{ item }}\bin\standalone.bat"
+    if (Test-Path $standalone) {
+        Write-Host ">>> Levantando $Name ($JBOSS_HOME)"
 
-        if (Test-Path $standalone) {
-            Start-Process -FilePath $standalone `
-                          -WorkingDirectory (Split-Path $standalone) `
-                          -WindowStyle Minimized
-        }
-        else {
-            Write-Host "No existe standalone.bat en {{ item }}" -ForegroundColor Yellow
-        }
-      args:
-        executable: powershell.exe
-      loop: "{{ jboss_instances }}"
-      become: yes
-      become_method: runas
-      become_user: Administrator
+        Start-Process `
+            -FilePath $standalone `
+            -ArgumentList "--server-config=t24.xml -b 0.0.0.0 -bmanagement=0.0.0.0" `
+            -WorkingDirectory (Split-Path $standalone) `
+            -WindowStyle Minimized
+    }
+    else {
+        Write-Host "!!! standalone.bat no encontrado en $JBOSS_HOME" -ForegroundColor Red
+    }
+}
 
-    - name: Esperar arranque inicial
-      pause:
-        seconds: 20
+# =====================================
+# DETECCIÓN DE JBOSS
+# =====================================
+$jbossDirs = Get-ChildItem -Path $AS_ROOT -Directory
 
-    - name: Validar puertos de management JBoss
-      win_shell: |
-        $port = {{ jboss_ports[item] | default(0) }}
+$jbossPrincipal = $jbossDirs | Where-Object { $_.Name -eq "jboss-eap-7.2" }
 
-        if ($port -eq 0) {
-            Write-Host "No hay puerto definido para {{ item }}" -ForegroundColor Yellow
-            exit 0
-        }
+$jbossSecundarios = $jbossDirs |
+    Where-Object { $_.Name -match "01|02" } |
+    Sort-Object Name
 
-        $listening = netstat -ano | findstr ":$port"
+# =====================================
+# ARRANQUE
+# =====================================
+Write-Host "=== INICIO ARRANQUE JBOSS ==="
 
-        if ($listening) {
-            Write-Host "[OK] {{ item }} escuchando en puerto $port" -ForegroundColor Green
-        }
-        else {
-            Write-Host "[ERROR] {{ item }} NO escucha en puerto $port" -ForegroundColor Red
-            exit 1
-        }
-      loop: "{{ jboss_instances }}"
+if ($jbossPrincipal) {
+    Start-JBoss -JBOSS_HOME $jbossPrincipal.FullName -Name "JBoss Principal"
+    Start-Sleep -Seconds 15
+}
+else {
+    Write-Host "!!! JBoss principal NO encontrado" -ForegroundColor Red
+}
+
+if ($jbossSecundarios.Count -gt 0) {
+    foreach ($sec in $jbossSecundarios) {
+        Start-JBoss -JBOSS_HOME $sec.FullName -Name "JBoss Secundario $($sec.Name)"
+        Start-Sleep -Seconds 15
+    }
+}
+else {
+    Write-Host "No se detectaron JBoss secundarios (01 / 02)"
+}
+
+Write-Host "=== ARRANQUE COMPLETADO ==="
