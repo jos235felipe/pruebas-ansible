@@ -4,7 +4,7 @@
   gather_facts: no
 
   tasks:
-    - name: Limpieza de logs JBoss y TAFJEE (sin tocar deployments)
+    - name: Detectar instancias JBoss y limpiar solo standalone/log
       ansible.windows.win_powershell:
         script: |
           # ==============================
@@ -13,11 +13,11 @@
           $jbossRootPath = "C:\Temenos\R18\3rdParty\As"
           $tafjLogPath   = "C:\Temenos\R18\TAFJ\log"
 
-          Write-Host "=== INICIO LIMPIEZA ==="
+          Write-Host "Buscando instancias JBoss en $jbossRootPath"
 
           # ==============================
-          # DETECCIÓN INSTANCIAS JBoss
-          # Principal + 01 + 02
+          # DETECCIÓN DE INSTANCIAS JBoss
+          # Principal + secundarios 01 y 02
           # ==============================
           $jbossInstances = Get-ChildItem -Path $jbossRootPath -Directory |
             Where-Object {
@@ -26,24 +26,28 @@
               $_.Name -match "02"
             }
 
+          if ($jbossInstances.Count -eq 0) {
+            Write-Host "No se encontraron instancias JBoss válidas."
+          }
+
+          # ==============================
+          # LIMPIEZA DE LOGS JBoss
+          # ==============================
           foreach ($instance in $jbossInstances) {
             $logPath = Join-Path $instance.FullName "standalone\log"
 
             if (Test-Path $logPath) {
               Write-Host "Limpiando logs JBoss: $logPath"
 
-              Get-ChildItem -Path $logPath -Force -ErrorAction SilentlyContinue |
-                ForEach-Object {
-                  try {
-                    Remove-Item $_.FullName -Recurse -Force -ErrorAction Stop
-                  } catch {
-                    Write-Host "No se pudo borrar: $($_.FullName)" -ForegroundColor Yellow
-                  }
-                }
+              Get-ChildItem -Path $logPath -Recurse -Force -ErrorAction SilentlyContinue |
+                Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            else {
+              Write-Host "Ruta no encontrada, se omite: $logPath"
             }
           }
 
-          # ==============================
+         # ==============================
           # LIMPIEZA LOGS TAFJEE (CORREGIDO)
           # ==============================
           if (Test-Path $tafjLogPath) {
