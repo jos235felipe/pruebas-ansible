@@ -1,6 +1,6 @@
 ---
 - name: Limpieza controlada de logs JBoss y TAFJEE
-  hosts: windows
+  hosts: all
   gather_facts: no
 
   tasks:
