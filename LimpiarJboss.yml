@@ -1,37 +1,42 @@
-# ==============================================================================
-# Script de Mantenimiento: Limpieza recursiva de JBoss (Logs y Temp)
-# EXCLUYE DEPLOYMENTS
-# ==============================================================================
+---
+- name: Limpieza controlada JBoss y TAFJEE
+  hosts: windows
+  gather_facts: no
 
-# 1. Definición de Variables
-$basePath = "C:\Temenos\R18\3rdParty\As\<instancia>\standalone"
+  tasks:
+    - name: Limpieza de logs y temporales (sin borrar deployments)
+      ansible.windows.win_powershell:
+        script: |
+          # ==============================
+          # VARIABLES BASE
+          # ==============================
+          $jbossBasePath = "C:\Temenos\R18\3rdParty\As\<INSTANCIA>\standalone"
+          $tafjLogPath   = "C:\Temenos\R18\TAFJ\log"
 
-# 2. Carpetas permitidas para limpieza
-$pathsToClean = @(
-    "$basePath\log",
-    "$basePath\tmp",
-    "$basePath\data\tmp"
-)
+          # ==============================
+          # RUTAS A LIMPIAR
+          # (NO incluir deployments)
+          # ==============================
+          $pathsToClean = @(
+              "$jbossBasePath\log",
+              "$jbossBasePath\tmp",
+              "$jbossBasePath\data\tmp",
+              $tafjLogPath
+          )
 
-# 3. Carpeta EXCLUIDA explícitamente
-$excludedPath = "$basePath\deployments"
+          # ==============================
+          # PROCESO DE LIMPIEZA
+          # ==============================
+          foreach ($path in $pathsToClean) {
+              if (Test-Path $path) {
+                  Write-Host "Limpiando: $path"
 
-# 4. Proceso de limpieza
-foreach ($path in $pathsToClean) {
+                  Get-ChildItem -Path $path -Recurse -Force -ErrorAction SilentlyContinue |
+                  Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+              }
+              else {
+                  Write-Host "Ruta no encontrada, se omite: $path"
+              }
+          }
 
-    if (Test-Path $path) {
-
-        # Protección adicional por si alguien agrega deployments por error
-        if ($path -like "*deployments*") {
-            Write-Host "Saltando carpeta protegida: $path" -ForegroundColor Yellow
-            continue
-        }
-
-        Write-Host "Limpiando: $path" -ForegroundColor Cyan
-
-        Get-ChildItem -Path $path -Recurse -Force -ErrorAction SilentlyContinue |
-        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-    }
-}
-
-Write-Host "Limpieza finalizada. Deployments NO fue afectado." -ForegroundColor Green
+          Write-Host "Limpieza finalizada correctamente."
