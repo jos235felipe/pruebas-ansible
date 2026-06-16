@@ -1,42 +1,63 @@
 ---
-- name: Limpieza controlada JBoss y TAFJEE
+- name: Limpieza controlada de logs JBoss y TAFJEE
   hosts: windows
   gather_facts: no
 
   tasks:
-    - name: Limpieza de logs y temporales (sin borrar deployments)
+    - name: Detectar instancias JBoss y limpiar solo standalone/log
       ansible.windows.win_powershell:
         script: |
           # ==============================
           # VARIABLES BASE
           # ==============================
-          $jbossBasePath = "C:\Temenos\R18\3rdParty\As\<INSTANCIA>\standalone"
+          $jbossRootPath = "C:\Temenos\R18\3rdParty\As"
           $tafjLogPath   = "C:\Temenos\R18\TAFJ\log"
 
-          # ==============================
-          # RUTAS A LIMPIAR
-          # (NO incluir deployments)
-          # ==============================
-          $pathsToClean = @(
-              "$jbossBasePath\log",
-              "$jbossBasePath\tmp",
-              "$jbossBasePath\data\tmp",
-              $tafjLogPath
-          )
+          Write-Host "Buscando instancias JBoss en $jbossRootPath"
 
           # ==============================
-          # PROCESO DE LIMPIEZA
+          # DETECCIÓN DE INSTANCIAS JBoss
+          # Principal + secundarios 01 y 02
           # ==============================
-          foreach ($path in $pathsToClean) {
-              if (Test-Path $path) {
-                  Write-Host "Limpiando: $path"
+          $jbossInstances = Get-ChildItem -Path $jbossRootPath -Directory |
+            Where-Object {
+              $_.Name -eq "jboss-eap-7.2" -or
+              $_.Name -match "01" -or
+              $_.Name -match "02"
+            }
 
-                  Get-ChildItem -Path $path -Recurse -Force -ErrorAction SilentlyContinue |
-                  Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
-              }
-              else {
-                  Write-Host "Ruta no encontrada, se omite: $path"
-              }
+          if ($jbossInstances.Count -eq 0) {
+            Write-Host "No se encontraron instancias JBoss válidas."
           }
 
-          Write-Host "Limpieza finalizada correctamente."
+          # ==============================
+          # LIMPIEZA DE LOGS JBoss
+          # ==============================
+          foreach ($instance in $jbossInstances) {
+            $logPath = Join-Path $instance.FullName "standalone\log"
+
+            if (Test-Path $logPath) {
+              Write-Host "Limpiando logs JBoss: $logPath"
+
+              Get-ChildItem -Path $logPath -Recurse -Force -ErrorAction SilentlyContinue |
+                Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            else {
+              Write-Host "Ruta no encontrada, se omite: $logPath"
+            }
+          }
+
+          # ==============================
+          # LIMPIEZA LOGS TAFJEE
+          # ==============================
+          if (Test-Path $tafjLogPath) {
+            Write-Host "Limpiando logs TAFJEE: $tafjLogPath"
+
+            Get-ChildItem -Path $tafjLogPath -Recurse -Force -ErrorAction SilentlyContinue |
+              Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+          }
+          else {
+            Write-Host "Ruta TAFJEE no encontrada, se omite."
+          }
+
+          Write-Host "Proceso de limpieza finalizado correctamente."
