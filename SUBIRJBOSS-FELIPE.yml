@@ -4,81 +4,81 @@
   gather_facts: no
 
   tasks:
-    - name: Arranque dinámico de JBoss (principal + opcionales)
+    - name: Arranque dinámico de JBoss
       ansible.windows.win_powershell:
         script: |
           # =====================================
-# VARIABLES BASE
-# =====================================
-$AS_ROOT   = "C:\Temenos\R18\3rdParty\As"
-$JAVA_HOME = "C:\Temenos\R18\3rdParty\Java\jdk1.8.0_181"
-$TAFJ_HOME = "C:\Temenos\R18\TAFJ"
+          # VARIABLES BASE
+          # =====================================
+          $AS_ROOT   = "C:\Temenos\R18\3rdParty\As"
+          $JAVA_HOME = "C:\Temenos\R18\3rdParty\Java\jdk1.8.0_181"
+          $TAFJ_HOME = "C:\Temenos\R18\TAFJ"
 
-$env:JAVA_HOME = $JAVA_HOME
-$env:TAFJ_HOME = $TAFJ_HOME
-$env:PATH = "$JAVA_HOME\bin;$TAFJ_HOME\bin;$env:PATH"
+          $env:JAVA_HOME = $JAVA_HOME
+          $env:TAFJ_HOME = $TAFJ_HOME
+          $env:PATH = "$JAVA_HOME\bin;$TAFJ_HOME\bin;$env:PATH"
 
-Write-Host "JAVA_HOME=$JAVA_HOME"
-Write-Host "TAFJ_HOME=$TAFJ_HOME"
-Write-Host "AS_ROOT=$AS_ROOT"
+          Write-Host "JAVA_HOME=$JAVA_HOME"
+          Write-Host "TAFJ_HOME=$TAFJ_HOME"
+          Write-Host "AS_ROOT=$AS_ROOT"
 
-# =====================================
-# FUNCIÓN ARRANQUE JBOSS
-# =====================================
-function Start-JBoss {
-    param (
-        [string]$JBOSS_HOME,
-        [string]$Name
-    )
+          # =====================================
+          # FUNCIÓN ARRANQUE JBOSS
+          # =====================================
+          function Start-JBoss {
+              param (
+                  [string]$JBOSS_HOME,
+                  [string]$Name
+              )
 
-    $standalone = Join-Path $JBOSS_HOME "bin\standalone.bat"
+              $standalone = Join-Path $JBOSS_HOME "bin\standalone.bat"
 
-    if (Test-Path $standalone) {
-        Write-Host ">>> Levantando $Name ($JBOSS_HOME)"
+              if (Test-Path $standalone) {
+                  Write-Host ">>> Levantando $Name ($JBOSS_HOME)"
 
-        Start-Process `
-            -FilePath $standalone `
-            -ArgumentList "--server-config=t24.xml -b 0.0.0.0 -bmanagement=0.0.0.0" `
-            -WorkingDirectory (Split-Path $standalone) `
-            -WindowStyle Minimized
-    }
-    else {
-        Write-Host "!!! standalone.bat no encontrado en $JBOSS_HOME" -ForegroundColor Red
-    }
-}
+                  Start-Process `
+                      -FilePath $standalone `
+                      -ArgumentList "--server-config=t24.xml -b 0.0.0.0 -bmanagement=0.0.0.0" `
+                      -WorkingDirectory (Split-Path $standalone) `
+                      -WindowStyle Minimized
+              }
+              else {
+                  Write-Host "!!! standalone.bat no encontrado en $JBOSS_HOME" -ForegroundColor Red
+              }
+          }
 
-# =====================================
-# DETECCIÓN DE JBOSS
-# =====================================
-$jbossDirs = Get-ChildItem -Path $AS_ROOT -Directory
+          # =====================================
+          # DETECCIÓN DE JBOSS
+          # =====================================
+          $jbossDirs = Get-ChildItem -Path $AS_ROOT -Directory
 
-$jbossPrincipal = $jbossDirs | Where-Object { $_.Name -eq "jboss-eap-7.2" }
+          $jbossPrincipal = $jbossDirs | Where-Object { $_.Name -eq "jboss-eap-7.2" }
 
-$jbossSecundarios = $jbossDirs |
-    Where-Object { $_.Name -match "01|02" } |
-    Sort-Object Name
+          $jbossSecundarios = $jbossDirs |
+              Where-Object { $_.Name -match "01|02" } |
+              Sort-Object Name
 
-# =====================================
-# ARRANQUE
-# =====================================
-Write-Host "=== INICIO ARRANQUE JBOSS ==="
+          # =====================================
+          # ARRANQUE
+          # =====================================
+          Write-Host "=== INICIO ARRANQUE JBOSS ==="
 
-if ($jbossPrincipal) {
-    Start-JBoss -JBOSS_HOME $jbossPrincipal.FullName -Name "JBoss Principal"
-    Start-Sleep -Seconds 15
-}
-else {
-    Write-Host "!!! JBoss principal NO encontrado" -ForegroundColor Red
-}
+          if ($jbossPrincipal) {
+              Start-JBoss -JBOSS_HOME $jbossPrincipal.FullName -Name "JBoss Principal"
+              Start-Sleep -Seconds 15
+          }
+          else {
+              Write-Host "!!! JBoss principal NO encontrado" -ForegroundColor Red
+          }
 
-if ($jbossSecundarios.Count -gt 0) {
-    foreach ($sec in $jbossSecundarios) {
-        Start-JBoss -JBOSS_HOME $sec.FullName -Name "JBoss Secundario $($sec.Name)"
-        Start-Sleep -Seconds 15
-    }
-}
-else {
-    Write-Host "No se detectaron JBoss secundarios (01 / 02)"
-}
+          if ($jbossSecundarios.Count -gt 0) {
+              foreach ($sec in $jbossSecundarios) {
+                  Start-JBoss -JBOSS_HOME $sec.FullName -Name "JBoss Secundario $($sec.Name)"
+                  Start-Sleep -Seconds 15
+              }
+          }
+          else {
+              Write-Host "No se detectaron JBoss secundarios (01 / 02)"
+          }
 
-Write-Host "=== ARRANQUE COMPLETADO ==="
+          Write-Host "=== ARRANQUE COMPLETADO ==="
