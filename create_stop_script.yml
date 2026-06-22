@@ -1,13 +1,28 @@
 ---
-- name: Crear script STOP_ALL_JBOSS.ps1 dinámico
+- name: Crear script STOP_ALL_JBOSS.ps1 dinámico por usuario AWX
   hosts: all
   gather_facts: no
 
   vars:
     jboss_base_path: 'C:\Temenos\R18\3rdParty\As'
-    script_path: 'C:\Users\t24admin\Desktop\START_T24\STOP_ALL_JBOSS.ps1'
+    user_home: 'C:\Users\{{ ansible_user }}'
+    script_dir: '{{ user_home }}\Desktop\START_T24'
+    script_path: '{{ script_dir }}\STOP_ALL_JBOSS.ps1'
 
   tasks:
+
+    - name: Validar usuario efectivo de ejecución
+      win_shell: whoami
+      register: whoami_out
+
+    - name: Mostrar usuario efectivo (debug controlado)
+      debug:
+        msg: "Playbook ejecutado como: {{ whoami_out.stdout }}"
+
+    - name: Crear carpeta destino START_T24 si no existe
+      win_file:
+        path: "{{ script_dir }}"
+        state: directory
 
     - name: Obtener carpetas de JBoss
       win_find:
