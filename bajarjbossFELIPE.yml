@@ -1,12 +1,38 @@
 ---
-- name: STOP ALL JBOSS - T24 Standalone
+- name: STOP ALL JBOSS - T24 Standalone (dinámico por usuario AWX)
   hosts: all
   gather_facts: no
 
+  vars:
+    user_home: 'C:\Users\{{ ansible_user }}'
+    script_path: '{{ user_home }}\Desktop\START_T24\STOP_ALL_JBOSS.ps1'
+
   tasks:
+
+    - name: Validar usuario efectivo de ejecución
+      win_shell: whoami
+      register: whoami_out
+
+    - name: Mostrar usuario efectivo (control operativo)
+      debug:
+        msg: "Ejecutando STOP ALL JBOSS como: {{ whoami_out.stdout }}"
+
+    - name: Validar existencia del script STOP_ALL_JBOSS.ps1
+      win_stat:
+        path: "{{ script_path }}"
+      register: stop_script
+
+    - name: Fallar si el script no existe
+      fail:
+        msg: >
+          No se encontró el script STOP_ALL_JBOSS.ps1 en:
+          {{ script_path }}
+          Usuario detectado: {{ ansible_user }}
+      when: not stop_script.stat.exists
+
     - name: Ejecutar script STOP_ALL_JBOSS.ps1
       win_shell: |
-        powershell.exe -NoProfile -ExecutionPolicy Bypass -File "C:\Users\t24admin\Desktop\START_T24\STOP_ALL_JBOSS.ps1"
+        powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{{ script_path }}"
       register: stop_jboss_result
 
     - name: Mostrar salida del script
