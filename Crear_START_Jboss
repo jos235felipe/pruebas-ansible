@@ -1,0 +1,91 @@
+---
+- name: "NOC | Crear BATs dinámicos de arranque JBoss"
+  hosts: all
+  gather_facts: no
+
+  vars:
+    jboss_root: "C:\\Temenos\\R18\\3rdParty\\As"
+    noc_root: "C:\\NOC"
+    start_dir: "C:\\NOC\\START JBoss"
+
+  tasks:
+
+    - name: Obtener IP del servidor (desde inventario AWX)
+      set_fact:
+        server_ip: "{{ ansible_host }}"
+
+    - name: Validar / crear carpeta C:\NOC
+      ansible.windows.win_file:
+        path: "{{ noc_root }}"
+        state: directory
+
+    - name: Validar / crear carpeta START JBoss
+      ansible.windows.win_file:
+        path: "{{ start_dir }}"
+        state: directory
+
+    - name: Detectar carpetas JBoss en As
+      ansible.windows.win_find:
+        paths: "{{ jboss_root }}"
+        file_type: directory
+      register: jboss_dirs
+
+    - name: Separar JBoss principal
+      set_fact:
+        jboss_principal: >-
+          {{ jboss_dirs.files
+             | selectattr('filename', 'equalto', 'jboss-eap-7.2')
+             | list }}
+
+    - name: Separar JBoss secundarios (máx 2)
+      set_fact:
+        jboss_secundarios: >-
+          {{ jboss_dirs.files
+             | rejectattr('filename', 'equalto', 'jboss-eap-7.2')
+             | list | slice(0,2) }}
+
+    - name: Validar que exista JBoss principal
+      fail:
+        msg: "No se encontró jboss-eap-7.2 en {{ jboss_root }}"
+      when: jboss_principal | length == 0
+
+    - name: Unificar lista final de JBoss (1 principal + secundarios)
+      set_fact:
+        jboss_final: "{{ jboss_principal + jboss_secundarios }}"
+
+    - name: Crear BAT dinámico por cada JBoss detectado
+      ansible.windows.win_copy:
+        dest: "{{ start_dir }}\\START_{{ item.filename }}_{{ server_ip }}.bat"
+        content: |
+          @echo off
+          REM =====================================================
+          REM START JBOSS - {{ item.filename }}
+          REM SERVIDOR {{ server_ip }}
+          REM =====================================================
+
+          set JAVA_HOME=C:\Temenos\R18\3rdParty\Java\jdk1.8.0_181
+          set TAFJ_HOME=C:\Temenos\R18\TAFJ
+          set JBOSS_HOME={{ item.path }}
+
+          set PATH=%JAVA_HOME%\bin;%TAFJ_HOME%\bin;%JBOSS_HOME%\bin;%PATH%
+
+          REM -----------------------------------------------------
+          REM JVM BASE OPTIONS
+          REM -----------------------------------------------------
+          set "JAVA_OPTS=-Xms8G -Xmx8G"
+          set "JAVA_OPTS=%JAVA_OPTS% -Djava.net.preferIPv4Stack=true"
+          set "JAVA_OPTS=%JAVA_OPTS% -Dtafj.home=%TAFJ_HOME%"
+          set "JAVA_OPTS=%JAVA_OPTS% -Dfile.encoding=UTF-8"
+
+          REM -----------------------------------------------------
+          REM START JBOSS (BACKGROUND)
+          REM -----------------------------------------------------
+          cd /d %JBOSS_HOME%\bin
+
+          start "JBOSS_{{ item.filename }}" standalone.bat ^
+           --server-config=t24.xml ^
+           -b 0.0.0.0 ^
+           -bmanagement=0.0.0.0
+
+          exit /b 0
+      loop: "{{ jboss_final }}"
