@@ -1,8 +1,17 @@
 ---
-- name: Crear tareas programadas NOC para inicio de JBoss
+- name: Prueba creación tarea programada
   hosts: all
   gather_facts: no
 
+  tasks:
+    - name: Crear tarea dummy
+      community.windows.win_scheduled_task:
+        name: TEST_NOC
+        actions:
+          - path: cmd.exe
+            arguments: /c echo Hola
+        triggers: []
+        state: present
   vars:
     noc_folder: "NOC"
     base_path: "C:\\NOC\\START JBoss"
