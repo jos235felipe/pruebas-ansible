@@ -1,0 +1,153 @@
+@echo off
+setlocal EnableDelayedExpansion
+
+REM =====================================================
+REM VALIDAR Y CREAR ESTRUCTURA NOC
+REM =====================================================
+
+set BASE_DIR=C:\NOC
+set START_DIR=%BASE_DIR%\START JBoss
+set AS_DIR=C:\Temenos\R18\3rdParty\As
+
+if not exist "%BASE_DIR%" (
+    mkdir "%BASE_DIR%"
+)
+
+if not exist "%START_DIR%" (
+    mkdir "%START_DIR%"
+)
+
+REM =====================================================
+REM DEFINIR JBOSS
+REM =====================================================
+
+set JBOSS_PRINCIPAL=jboss-eap-7.2
+set JBOSS_8181=
+set JBOSS_8281=
+
+for /d %%D in ("%AS_DIR%\*") do (
+    echo %%~nxD | find "01" >nul && set JBOSS_8181=%%~nxD
+    echo %%~nxD | find "02" >nul && set JBOSS_8281=%%~nxD
+)
+
+REM =====================================================
+REM CREAR BAT JBOSS PRINCIPAL 8081
+REM =====================================================
+
+if exist "%START_DIR%\START_JBOSS_PRINCIPAL.bat" (
+    echo [SKIP] START_JBOSS_PRINCIPAL ya existe
+) else (
+    echo Creando START_JBOSS_PRINCIPAL...
+    (
+        echo @echo off
+        echo REM START JBOSS PRINCIPAL
+        echo set JAVA_HOME=C:\Temenos\R18\3rdParty\Java\jdk1.8.0_181
+        echo set TAFJ_HOME=C:\Temenos\R18\TAFJ
+        echo set JBOSS_HOME=C:\Temenos\R18\3rdParty\As\%JBOSS_PRINCIPAL%
+        echo set PATH=%%JAVA_HOME%%\bin;%%TAFJ_HOME%%\bin;%%JBOSS_HOME%%\bin;%%PATH%%
+        echo.
+        echo set "JAVA_OPTS=-Xms28G -Xmx28G -XX:+UseParallelGC"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -XX:MetaspaceSize=256M -XX:MaxMetaspaceSize=28G"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -XX:ReservedCodeCacheSize=750M"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Djava.net.preferIPv4Stack=true"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Dactivemq.artemis.client.global.thread.pool.max.size=256"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Djboss.modules.system.pkgs=org.jboss.byteman"
+        echo.
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Djboss.server.base.dir=%%JBOSS_HOME%%\standalone"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Djboss.node.name=node1"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Djboss.socket.binding.port-offset=0"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Dtafj.home=%%TAFJ_HOME%%"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Dfile.encoding=UTF-8"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Ddsf.iris18.host=http://IP_DEL_SERVIDOR:8081/dsf-iris"
+        echo.
+        echo cd /d %%JBOSS_HOME%%\bin
+        echo start "JBOSS_PRINCIPAL" standalone.bat ^
+        echo --server-config=t24.xml ^
+        echo -b 0.0.0.0 ^
+        echo -bmanagement=0.0.0.0
+        echo exit /b 0
+    ) > "%START_DIR%\START_JBOSS_PRINCIPAL.bat"
+)
+
+REM =====================================================
+REM CREAR BAT JBOSS 8181
+REM =====================================================
+
+if exist "%START_DIR%\START_JBOSS_8181.bat" (
+    echo [SKIP] START_JBOSS_8181 ya existe
+) else (
+    echo Creando START_JBOSS_8181...
+    (
+        echo @echo off
+        echo REM START JBOSS 8181
+        echo set JAVA_HOME=C:\Temenos\R18\3rdParty\Java\jdk1.8.0_181
+        echo set TAFJ_HOME=C:\Temenos\R18\TAFJ
+        echo set JBOSS_HOME=C:\Temenos\R18\3rdParty\As\%JBOSS_8181%
+        echo set PATH=%%JAVA_HOME%%\bin;%%TAFJ_HOME%%\bin;%%JBOSS_HOME%%\bin;%%PATH%%
+        echo.
+        echo set "JAVA_OPTS=-Xms28G -Xmx28G -XX:+UseParallelGC"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -XX:MetaspaceSize=256M -XX:MaxMetaspaceSize=28G"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -XX:ReservedCodeCacheSize=750M"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Djava.net.preferIPv4Stack=true"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Dactivemq.artemis.client.global.thread.pool.max.size=256"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Djboss.modules.system.pkgs=org.jboss.byteman"
+        echo.
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Djboss.server.base.dir=%%JBOSS_HOME%%\standalone"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Djboss.node.name=node1"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Djboss.socket.binding.port-offset=100"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Dtafj.home=%%TAFJ_HOME%%"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Dfile.encoding=UTF-8"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Ddsf.iris18.host=http://IP_DEL_SERVIDOR:8181/dsf-iris"
+        echo.
+        echo cd /d %%JBOSS_HOME%%\bin
+        echo start "JBOSS_8181" standalone.bat ^
+        echo --server-config=t24.xml ^
+        echo -b 0.0.0.0 ^
+        echo -bmanagement=0.0.0.0
+        echo exit /b 0
+    ) > "%START_DIR%\START_JBOSS_8181.bat"
+)
+
+REM =====================================================
+REM CREAR BAT JBOSS 8281
+REM =====================================================
+
+if exist "%START_DIR%\START_JBOSS_8281.bat" (
+    echo [SKIP] START_JBOSS_8281 ya existe
+) else (
+    echo Creando START_JBOSS_8281...
+    (
+        echo @echo off
+        echo REM START JBOSS 8281
+        echo set JAVA_HOME=C:\Temenos\R18\3rdParty\Java\jdk1.8.0_181
+        echo set TAFJ_HOME=C:\Temenos\R18\TAFJ
+        echo set JBOSS_HOME=C:\Temenos\R18\3rdParty\As\%JBOSS_8281%
+        echo set PATH=%%JAVA_HOME%%\bin;%%TAFJ_HOME%%\bin;%%JBOSS_HOME%%\bin;%%PATH%%
+        echo.
+        echo set "JAVA_OPTS=-Xms28G -Xmx28G -XX:+UseParallelGC"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -XX:MetaspaceSize=256M -XX:MaxMetaspaceSize=28G"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -XX:ReservedCodeCacheSize=750M"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Djava.net.preferIPv4Stack=true"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Dactivemq.artemis.client.global.thread.pool.max.size=256"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Djboss.modules.system.pkgs=org.jboss.byteman"
+        echo.
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Djboss.server.base.dir=%%JBOSS_HOME%%\standalone"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Djboss.node.name=node1"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Djboss.socket.binding.port-offset=200"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Dtafj.home=%%TAFJ_HOME%%"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Dfile.encoding=UTF-8"
+        echo set "JAVA_OPTS=%%JAVA_OPTS%% -Ddsf.iris18.host=http://IP_DEL_SERVIDOR:8281/dsf-iris"
+        echo.
+        echo cd /d %%JBOSS_HOME%%\bin
+        echo start "JBOSS_8281" standalone.bat ^
+        echo --server-config=t24.xml ^
+        echo -b 0.0.0.0 ^
+        echo -bmanagement=0.0.0.0
+        echo exit /b 0
+    ) > "%START_DIR%\START_JBOSS_8281.bat"
+)
+
+echo.
+echo ===== PROCESO FINALIZADO =====
+endlocal
+pause
