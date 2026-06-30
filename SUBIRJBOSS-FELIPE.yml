@@ -1,54 +1,63 @@
 ---
-- name: START JBOSS DINÁMICO T24
+# =============================================================
+# Playbook: Ejecutar (RUN) tareas START_JBOSS en Task Scheduler\NOC
+# Target: Windows Server 2022
+# Requiere: colección ansible.windows (win_shell)
+# Regla: Si falta 1 o más tareas, NO se ejecuta ninguna en ese host.
+# =============================================================
+- name: Ejecutar tareas programadas START_JBOSS una por una
   hosts: all
-  gather_facts: no
+  gather_facts: false
+
+  vars:
+    noc_task_folder: "NOC"
+    jboss_tasks:
+      - name: "START_JBOSS_PRINCIPAL"
+      - name: "START_JBOSS_8181"
+      - name: "START_JBOSS_8281"
 
   tasks:
-    - name: Arranque dinámico de JBoss
-      ansible.windows.win_powershell:
-        script: |
-          $AS_ROOT   = "C:\Temenos\R18\3rdParty\As"
-          $JAVA_HOME = "C:\Temenos\R18\3rdParty\Java\jdk1.8.0_181"
-          $TAFJ_HOME = "C:\Temenos\R18\TAFJ"
 
-          $env:JAVA_HOME = $JAVA_HOME
-          $env:TAFJ_HOME = $TAFJ_HOME
-          $env:PATH = "$JAVA_HOME\bin;$TAFJ_HOME\bin;$env:PATH"
+    - name: "Verificar si la tarea existe: {{ item.name }}"
+      ansible.windows.win_shell: >
+        schtasks /Query /TN "\{{ noc_task_folder }}\{{ item.name }}" 2>nul
+      loop: "{{ jboss_tasks }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: task_check
+      changed_when: false
+      failed_when: false   # rc != 0 significa "no existe", no es error
 
-          function Start-JBoss {
-              param (
-                  [string]$JBOSS_HOME,
-                  [string]$Name
-              )
+    - name: Construir lista de tareas faltantes
+      ansible.builtin.set_fact:
+        missing_tasks: "{{ task_check.results | selectattr('rc', 'ne', 0) | map(attribute='item.name') | list }}"
 
-              $binPath = Join-Path $JBOSS_HOME "bin"
-              $cmd = "standalone.bat --server-config=t24.xml -b 0.0.0.0 -bmanagement=0.0.0.0"
+    - name: "Avisar — faltan tareas, contactar al NOC (no se ejecutará ninguna)"
+      ansible.builtin.debug:
+        msg: >
+          [ERROR] No se ejecutará ninguna tarea JBoss en este servidor porque
+          falta(n) la(s) siguiente(s) tarea(s) en \{{ noc_task_folder }}:
+          {{ missing_tasks | join(', ') }}.
+          Por favor contactar al NOC para validar/crear la(s) tarea(s) faltante(s)
+          antes de continuar.
+      when: missing_tasks | length > 0
 
-              if (Test-Path (Join-Path $binPath "standalone.bat")) {
-                  Write-Host ">>> Levantando $Name"
+    - name: "Ejecutar tarea: {{ item.item.name }}"
+      ansible.windows.win_shell: >
+        schtasks /Run /TN "\{{ noc_task_folder }}\{{ item.item.name }}"
+      loop: "{{ task_check.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+        pause: 5
+      when: missing_tasks | length == 0
+      register: task_run
+      changed_when: task_run.rc == 0
+      failed_when: task_run.rc != 0
 
-                  cmd.exe /c `
-                    "start ""JBOSS_$Name"" /min cmd /c `"$cmd`"" `
-                    | Out-Null
-              }
-              else {
-                  Write-Host "!!! standalone.bat no encontrado en $JBOSS_HOME" -ForegroundColor Red
-              }
-          }
-
-          $dirs = Get-ChildItem -Path $AS_ROOT -Directory
-
-          $principal = $dirs | Where-Object { $_.Name -eq "jboss-eap-7.2" }
-          $secundarios = $dirs | Where-Object { $_.Name -match "01|02" } | Sort-Object Name
-
-          if ($principal) {
-              Start-JBoss -JBOSS_HOME $principal.FullName -Name "PRINCIPAL"
-              Start-Sleep 10
-          }
-
-          foreach ($sec in $secundarios) {
-              Start-JBoss -JBOSS_HOME $sec.FullName -Name $sec.Name
-              Start-Sleep 10
-          }
-
-          Write-Host "=== ARRANQUE DISPARADO ==="
+    - name: "Confirmar ejecución de cada tarea"
+      ansible.builtin.debug:
+        msg: "[OK] Tarea \\{{ noc_task_folder }}\\{{ item.item.item.name }} ejecutada (RUN enviado)."
+      loop: "{{ task_run.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.item.name }}"
+      when: missing_tasks | length == 0 and item is not skipped and item.rc == 0
