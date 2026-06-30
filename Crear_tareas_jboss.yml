@@ -1,71 +1,161 @@
 ---
-- name: Crear tareas programadas NOC para inicio de JBoss (schtasks)
+# =============================================================
+# Playbook: Crear tareas START_JBOSS en Task Scheduler\NOC
+# Target: Windows Server 2022
+# Requiere: colección ansible.windows (win_shell, win_stat, win_copy)
+# =============================================================
+- name: Crear tareas programadas START_JBOSS en carpeta NOC
   hosts: all
-  gather_facts: no
+  gather_facts: false
 
   vars:
-    noc_folder: "NOC"
-    base_path: "C:\\NOC\\START JBoss"
-    task_user: "{{ ansible_user }}"
-
-    tasks_def:
-      - name: START_JBOSS_PRINCIPAL
-        bat: START_JBOSS_PRINCIPAL.bat
-
-      - name: START_JBOSS_8181
-        bat: START_JBOSS_8181.bat
-
-      - name: START_JBOSS_8281
-        bat: START_JBOSS_8281.bat
+    noc_task_folder: "NOC"
+    bat_base_path: "C:\\NOC\\START JBoss"
+    jboss_tasks:
+      - name: "START_JBOSS_PRINCIPAL"
+        bat_file: "START_JBOSS_PRINCIPAL.bat"
+      - name: "START_JBOSS_8181"
+        bat_file: "START_JBOSS_8181.bat"
+      - name: "START_JBOSS_8281"
+        bat_file: "START_JBOSS_8281.bat"
 
   tasks:
 
-    - name: Mostrar usuario en ejecución
-      debug:
-        msg: "Usuario dinámico: {{ task_user }}"
+    - name: Obtener usuario dinámico de ejecución (whoami)
+      ansible.windows.win_shell: whoami
+      register: current_user_raw
+      changed_when: false
 
-    - name: Procesar tareas JBoss
-      loop: "{{ tasks_def }}"
+    - name: Fijar variable con el usuario detectado
+      ansible.builtin.set_fact:
+        exec_user: "{{ current_user_raw.stdout | trim }}"
+
+    - name: Mostrar usuario que se usará como Principal de las tareas
+      ansible.builtin.debug:
+        msg: "Usuario dinámico detectado para LogonType S4U: {{ exec_user }}"
+
+    - name: Verificar si cada .bat existe en disco
+      ansible.windows.win_stat:
+        path: "{{ bat_base_path }}\\{{ item.bat_file }}"
+      loop: "{{ jboss_tasks }}"
       loop_control:
         label: "{{ item.name }}"
-      block:
+      register: bat_check
 
-        - name: Validar existencia del BAT
-          win_stat:
-            path: "{{ base_path }}\\{{ item.bat }}"
-          register: bat_stat
+    - name: Verificar si cada tarea ya existe en el Task Scheduler
+      ansible.windows.win_shell: >
+        schtasks /Query /TN "\{{ noc_task_folder }}\{{ item.name }}" 2>nul
+      loop: "{{ jboss_tasks }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: task_check
+      changed_when: false
+      failed_when: false   # un código != 0 significa "no existe", no es error
 
-        - name: BAT no existe → skip
-          debug:
-            msg: "SKIPPED: No existe {{ base_path }}\\{{ item.bat }}"
-          when: not bat_stat.stat.exists
+    - name: Construir lista combinada de estado por tarea (bat existe / tarea existe)
+      ansible.builtin.set_fact:
+        task_status: "{{ task_status | default([]) + [ {
+            'name': item.0.item.name,
+            'bat_file': item.0.item.bat_file,
+            'bat_exists': item.0.stat.exists,
+            'task_exists': (item.1.rc == 0)
+          } ] }}"
+      loop: "{{ bat_check.results | zip(task_check.results) | list }}"
+      loop_control:
+        label: "{{ item.0.item.name }}"
 
-        - name: Verificar si la tarea ya existe
-          win_command: >
-            schtasks /query
-            /tn "\{{ noc_folder }}\{{ item.name }}"
-          register: task_query
-          failed_when: false
-          changed_when: false
-          when: bat_stat.stat.exists
+    - name: Avisar y SKIP — archivo .bat no encontrado
+      ansible.builtin.debug:
+        msg: >
+          [SKIP] No se encontró el archivo {{ bat_base_path }}\{{ item.bat_file }}
+          para la tarea {{ item.name }}. No se creará esta tarea.
+      loop: "{{ task_status }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: not item.bat_exists
 
-        - name: Tarea ya existe → skip
-          debug:
-            msg: "SKIPPED: La tarea {{ item.name }} ya existe"
-          when:
-            - bat_stat.stat.exists
-            - task_query.rc == 0
+    - name: Avisar y SKIP — la tarea ya existe
+      ansible.builtin.debug:
+        msg: >
+          [SKIP] La tarea \{{ noc_task_folder }}\{{ item.name }} ya existe en el
+          Task Scheduler. No se vuelve a crear (no se sobrescribe).
+      loop: "{{ task_status }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: item.bat_exists and item.task_exists
 
-        - name: Crear tarea con schtasks
-          win_command: >
-            schtasks /create
-            /tn "\{{ noc_folder }}\{{ item.name }}"
-            /tr "{{ base_path }}\{{ item.bat }}"
-            /sc ONCE
-            /st 00:00
-            /ru "{{ task_user }}"
-            /rl HIGHEST
-            /f
-          when:
-            - bat_stat.stat.exists
-            - task_query.rc != 0
+    - name: Generar XML temporal de definición de tarea (solo si aplica crear)
+      ansible.windows.win_copy:
+        dest: "C:\\Windows\\Temp\\{{ item.name }}.xml"
+        content: |
+          <?xml version="1.0" encoding="UTF-16"?>
+          <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+            <RegistrationInfo>
+              <Description>Tarea NOC - {{ item.name }} (creada via Ansible)</Description>
+            </RegistrationInfo>
+            <Triggers />
+            <Principals>
+              <Principal id="Author">
+                <UserId>{{ exec_user }}</UserId>
+                <LogonType>S4U</LogonType>
+                <RunLevel>LeastPrivilege</RunLevel>
+              </Principal>
+            </Principals>
+            <Settings>
+              <MultipleInstancesPolicy>Parallel</MultipleInstancesPolicy>
+              <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+              <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+              <AllowHardTerminate>true</AllowHardTerminate>
+              <StartWhenAvailable>true</StartWhenAvailable>
+              <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+              <IdleSettings>
+                <StopOnIdleEnd>false</StopOnIdleEnd>
+                <RestartOnIdle>false</RestartOnIdle>
+              </IdleSettings>
+              <AllowStartOnDemand>true</AllowStartOnDemand>
+              <Enabled>true</Enabled>
+              <Hidden>false</Hidden>
+              <RunOnlyIfIdle>false</RunOnlyIfIdle>
+              <WakeToRun>false</WakeToRun>
+              <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+              <Priority>7</Priority>
+            </Settings>
+            <Actions Context="Author">
+              <Exec>
+                <Command>{{ bat_base_path }}\{{ item.bat_file }}</Command>
+                <WorkingDirectory>{{ bat_base_path }}</WorkingDirectory>
+              </Exec>
+            </Actions>
+          </Task>
+      loop: "{{ task_status }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: item.bat_exists and not item.task_exists
+      register: xml_generated
+
+    - name: Crear la tarea en Task Scheduler\NOC a partir del XML (sin ejecutarla)
+      ansible.windows.win_shell: >
+        schtasks /Create /TN "\{{ noc_task_folder }}\{{ item.item.name }}"
+        /XML "C:\Windows\Temp\{{ item.item.name }}.xml"
+      loop: "{{ xml_generated.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: item is not skipped
+      register: task_created
+
+    - name: Confirmar tareas creadas exitosamente
+      ansible.builtin.debug:
+        msg: "[OK] Tarea \\{{ noc_task_folder }}\\{{ item.item.item.name }} creada correctamente."
+      loop: "{{ task_created.results }}"
+      loop_control:
+        label: "{{ item.item.item.name }}"
+      when: item is not skipped and item.rc == 0
+
+    - name: Limpiar XML temporales generados
+      ansible.windows.win_file:
+        path: "C:\\Windows\\Temp\\{{ item.name }}.xml"
+        state: absent
+      loop: "{{ task_status }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: item.bat_exists and not item.task_exists
