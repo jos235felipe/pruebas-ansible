@@ -17,43 +17,21 @@
 
   tasks:
 
-    - name: "Verificar si la tarea existe: {{ item.name }}"
+    - name: "Ejecutar tarea: {{ item.name }}"
       ansible.windows.win_shell: >
-        schtasks /Query /TN "\{{ noc_task_folder }}\{{ item.name }}" 2>nul
+        schtasks /Run /TN "\{{ noc_task_folder }}\{{ item.name }}"
       loop: "{{ jboss_tasks }}"
       loop_control:
         label: "{{ item.name }}"
-      register: task_check
-      changed_when: false
-      failed_when: false   # rc != 0 significa "no existe", no es error
-
-    - name: "Avisar — la tarea NO existe, contactar al NOC: {{ item.item.name }}"
-      ansible.builtin.debug:
-        msg: >
-          [ERROR] La tarea \{{ noc_task_folder }}\{{ item.item.name }} NO existe en
-          el Task Scheduler de este servidor. Por favor contactar al NOC para
-          validar/crear la tarea antes de continuar.
-      loop: "{{ task_check.results }}"
-      loop_control:
-        label: "{{ item.item.name }}"
-      when: item.rc != 0
-
-    - name: "Ejecutar tarea: {{ item.item.name }}"
-      ansible.windows.win_shell: >
-        schtasks /Run /TN "\{{ noc_task_folder }}\{{ item.item.name }}"
-      loop: "{{ task_check.results }}"
-      loop_control:
-        label: "{{ item.item.name }}"
         pause: 5
-      when: item.rc == 0
       register: task_run
       changed_when: task_run.rc == 0
       failed_when: task_run.rc != 0
 
     - name: "Confirmar ejecución de cada tarea"
       ansible.builtin.debug:
-        msg: "[OK] Tarea \\{{ noc_task_folder }}\\{{ item.item.item.name }} ejecutada (RUN enviado)."
+        msg: "[OK] Tarea \\{{ noc_task_folder }}\\{{ item.item.name }} ejecutada (RUN enviado)."
       loop: "{{ task_run.results }}"
       loop_control:
-        label: "{{ item.item.item.name }}"
-      when: item is not skipped and item.rc == 0
+        label: "{{ item.item.name }}"
+      when: item.rc == 0
