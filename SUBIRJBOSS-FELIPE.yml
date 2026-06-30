@@ -3,7 +3,6 @@
 # Playbook: Ejecutar (RUN) tareas START_JBOSS en Task Scheduler\NOC
 # Target: Windows Server 2022
 # Requiere: colección ansible.windows (win_shell)
-# Regla: Si falta 1 o más tareas, NO se ejecuta ninguna en ese host.
 # =============================================================
 - name: Ejecutar tareas programadas START_JBOSS una por una
   hosts: all
@@ -28,19 +27,16 @@
       changed_when: false
       failed_when: false   # rc != 0 significa "no existe", no es error
 
-    - name: Construir lista de tareas faltantes
-      ansible.builtin.set_fact:
-        missing_tasks: "{{ task_check.results | selectattr('rc', 'ne', 0) | map(attribute='item.name') | list }}"
-
-    - name: "Avisar — faltan tareas, contactar al NOC (no se ejecutará ninguna)"
+    - name: "Avisar — la tarea NO existe, contactar al NOC: {{ item.item.name }}"
       ansible.builtin.debug:
         msg: >
-          [ERROR] No se ejecutará ninguna tarea JBoss en este servidor porque
-          falta(n) la(s) siguiente(s) tarea(s) en \{{ noc_task_folder }}:
-          {{ missing_tasks | join(', ') }}.
-          Por favor contactar al NOC para validar/crear la(s) tarea(s) faltante(s)
-          antes de continuar.
-      when: missing_tasks | length > 0
+          [ERROR] La tarea \{{ noc_task_folder }}\{{ item.item.name }} NO existe en
+          el Task Scheduler de este servidor. Por favor contactar al NOC para
+          validar/crear la tarea antes de continuar.
+      loop: "{{ task_check.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: item.rc != 0
 
     - name: "Ejecutar tarea: {{ item.item.name }}"
       ansible.windows.win_shell: >
@@ -49,7 +45,7 @@
       loop_control:
         label: "{{ item.item.name }}"
         pause: 5
-      when: missing_tasks | length == 0
+      when: item.rc == 0
       register: task_run
       changed_when: task_run.rc == 0
       failed_when: task_run.rc != 0
@@ -57,7 +53,7 @@
     - name: "Confirmar ejecución de cada tarea"
       ansible.builtin.debug:
         msg: "[OK] Tarea \\{{ noc_task_folder }}\\{{ item.item.item.name }} ejecutada (RUN enviado)."
-      loop: "{{ task_run.results | default([]) }}"
+      loop: "{{ task_run.results }}"
       loop_control:
         label: "{{ item.item.item.name }}"
-      when: missing_tasks | length == 0 and item is not skipped and item.rc == 0
+      when: item is not skipped and item.rc == 0
