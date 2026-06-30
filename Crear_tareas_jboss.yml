@@ -6,17 +6,13 @@
   vars:
     noc_folder: "NOC"
     base_path: "C:\\NOC\\START JBoss"
-
-    # Usuario con el que se ejecutará la tarea
     task_user: "{{ ansible_user }}"
 
     tasks_def:
       - name: START_JBOSS_PRINCIPAL
         bat: "START_JBOSS_PRINCIPAL.bat"
-
       - name: START_JBOSS_8181
         bat: "START_JBOSS_8181.bat"
-
       - name: START_JBOSS_8281
         bat: "START_JBOSS_8281.bat"
 
@@ -26,48 +22,46 @@
       debug:
         msg: "Las tareas se crearán usando el usuario: {{ task_user }}"
 
-    - name: Crear tareas JBoss vía schtasks
-      block:
-
-        - name: Validar existencia del BAT {{ item.bat }}
-          win_stat:
-            path: "{{ base_path }}\\{{ item.bat }}"
-          register: bat_check
-
-        - name: BAT no encontrado, se omite tarea
-          debug:
-            msg: "SKIPPED: No existe {{ base_path }}\\{{ item.bat }}"
-          when: not bat_check.stat.exists
-
-        - name: Verificar si la tarea {{ item.name }} ya existe
-          win_command: >
-            schtasks /query /TN "\{{ noc_folder }}\{{ item.name }}"
-          register: task_check
-          failed_when: false
-          changed_when: false
-          when: bat_check.stat.exists
-
-        - name: La tarea ya existe, se omite
-          debug:
-            msg: "SKIPPED: La tarea {{ item.name }} ya está creada"
-          when:
-            - bat_check.stat.exists
-            - task_check.rc == 0
-
-        - name: Crear tarea {{ item.name }} con schtasks
-          win_command: >
-            schtasks /create
-            /TN "\{{ noc_folder }}\{{ item.name }}"
-            /TR "{{ base_path }}\{{ item.bat }}"
-            /SC ONCE
-            /ST 00:00
-            /RU "{{ task_user }}"
-            /RL HIGHEST
-            /F
-          when:
-            - bat_check.stat.exists
-            - task_check.rc != 0
-
+    - name: Validar existencia del BAT
+      win_stat:
+        path: "{{ base_path }}\\{{ item.bat }}"
+      register: bat_check
       loop: "{{ tasks_def }}"
       loop_control:
         label: "{{ item.name }}"
+
+    - name: BAT no encontrado, se omite tarea
+      debug:
+        msg: "SKIPPED: No existe {{ base_path }}\\{{ item.item.bat }}"
+      when: not item.stat.exists
+      loop: "{{ bat_check.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    - name: Verificar si la tarea ya existe
+      win_command: >
+        schtasks /query /TN "\{{ noc_folder }}\{{ item.item.name }}"
+      register: task_check
+      failed_when: false
+      changed_when: false
+      when: item.stat.exists
+      loop: "{{ bat_check.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    - name: Crear tarea con schtasks
+      win_command: >
+        schtasks /create
+        /TN "\{{ noc_folder }}\{{ item.item.name }}"
+        /TR "{{ base_path }}\{{ item.item.bat }}"
+        /SC ONCE
+        /ST 00:00
+        /RU "{{ task_user }}"
+        /RL HIGHEST
+        /F
+      when:
+        - item.stat.exists
+        - task_check.results[loop.index0].rc != 0
+      loop: "{{ bat_check.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
