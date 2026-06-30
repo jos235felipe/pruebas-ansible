@@ -1,22 +1,13 @@
 ---
-- name: Prueba creación tarea programada
-  hosts: all
+- name: Crear tareas programadas NOC para inicio de JBoss (schtasks)
+  hosts: windows
   gather_facts: no
 
-  tasks:
-    - name: Crear tarea dummy
-      community.windows.win_scheduled_task:
-        name: TEST_NOC
-        actions:
-          - path: cmd.exe
-            arguments: /c echo Hola
-        triggers: []
-        state: present
   vars:
     noc_folder: "NOC"
     base_path: "C:\\NOC\\START JBoss"
 
-    # Usuario dinámico (equivalente a whoami)
+    # Usuario con el que se ejecutará la tarea
     task_user: "{{ ansible_user }}"
 
     tasks_def:
@@ -33,17 +24,9 @@
 
     - name: Mostrar usuario con el que se ejecuta el playbook
       debug:
-        msg: "La tarea se creará usando el usuario: {{ task_user }}"
+        msg: "Las tareas se crearán usando el usuario: {{ task_user }}"
 
-    - name: Asegurar carpeta NOC en Task Scheduler
-      win_scheduled_task:
-        name: "_folder_init"
-        path: "\\{{ noc_folder }}"
-        state: present
-      changed_when: false
-      failed_when: false
-
-    - name: Crear tareas JBoss en Task Scheduler
+    - name: Crear tareas JBoss vía schtasks
       block:
 
         - name: Validar existencia del BAT {{ item.bat }}
@@ -57,10 +40,8 @@
           when: not bat_check.stat.exists
 
         - name: Verificar si la tarea {{ item.name }} ya existe
-          win_scheduled_task:
-            name: "{{ item.name }}"
-            path: "\\{{ noc_folder }}"
-            state: query
+          win_command: >
+            schtasks /query /TN "\{{ noc_folder }}\{{ item.name }}"
           register: task_check
           failed_when: false
           changed_when: false
@@ -71,34 +52,21 @@
             msg: "SKIPPED: La tarea {{ item.name }} ya está creada"
           when:
             - bat_check.stat.exists
-            - task_check.exists | default(false)
+            - task_check.rc == 0
 
-        - name: Crear tarea {{ item.name }}
-          win_scheduled_task:
-            name: "{{ item.name }}"
-            path: "\\{{ noc_folder }}"
-            description: "Inicio manual de JBoss - {{ item.name }}"
-            actions:
-              - path: "{{ base_path }}\\{{ item.bat }}"
-                working_directory: "{{ base_path }}"
-            triggers: []            # Sin triggers
-            username: "{{ task_user }}"
-            logon_type: password    # Run whether user is logged on or not
-            run_level: highest
-            compatibility: win8    # Windows Server 2022
-            enabled: yes
-            settings:
-              allow_demand_start: yes
-              start_when_available: yes
-              disallow_start_if_on_batteries: no
-              stop_if_going_on_batteries: no
-              multiple_instances: ignore_new
-              restart_count: 0
-              execution_time_limit: PT0S
-            state: present
+        - name: Crear tarea {{ item.name }} con schtasks
+          win_command: >
+            schtasks /create
+            /TN "\{{ noc_folder }}\{{ item.name }}"
+            /TR "{{ base_path }}\{{ item.bat }}"
+            /SC ONCE
+            /ST 00:00
+            /RU "{{ task_user }}"
+            /RL HIGHEST
+            /F
           when:
             - bat_check.stat.exists
-            - not task_check.exists | default(false)
+            - task_check.rc != 0
 
       loop: "{{ tasks_def }}"
       loop_control:
