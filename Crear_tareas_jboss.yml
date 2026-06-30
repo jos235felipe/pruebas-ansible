@@ -1,6 +1,6 @@
 ---
 - name: Crear tareas programadas NOC para inicio de JBoss (schtasks)
-  hosts: windows
+  hosts: all
   gather_facts: no
 
   vars:
