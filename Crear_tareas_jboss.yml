@@ -2,7 +2,7 @@
 # =============================================================
 # Playbook: Crear tareas START_JBOSS en Task Scheduler\NOC
 # Target: Windows Server 2022
-# Requiere: colección ansible.windows (win_shell, win_stat, win_copy)
+# Requiere: colección ansible.windows (win_shell, win_stat, win_copy, win_file)
 # =============================================================
 - name: Crear tareas programadas START_JBOSS en carpeta NOC
   hosts: all
@@ -74,7 +74,7 @@
         label: "{{ item.name }}"
       when: not item.bat_exists
 
-    - name: Avisar y SKIP — la tarea ya existe
+    - name: Avisar y SKIP — la tarea ya existe (detectada antes de crear)
       ansible.builtin.debug:
         msg: >
           [SKIP] La tarea \{{ noc_task_folder }}\{{ item.name }} ya existe en el
@@ -142,6 +142,10 @@
         label: "{{ item.item.name }}"
       when: item is not skipped
       register: task_created
+      changed_when: task_created.rc == 0
+      failed_when:
+        - task_created.rc != 0
+        - "'already exists' not in task_created.stderr"
 
     - name: Confirmar tareas creadas exitosamente
       ansible.builtin.debug:
@@ -150,6 +154,16 @@
       loop_control:
         label: "{{ item.item.item.name }}"
       when: item is not skipped and item.rc == 0
+
+    - name: Avisar y SKIP — la tarea ya existía al momento de crearla (detección tardía)
+      ansible.builtin.debug:
+        msg: >
+          [SKIP] La tarea \{{ noc_task_folder }}\{{ item.item.item.name }} ya existía
+          en el Task Scheduler al momento de crearla. No se modificó.
+      loop: "{{ task_created.results }}"
+      loop_control:
+        label: "{{ item.item.item.name }}"
+      when: item is not skipped and item.rc != 0
 
     - name: Limpiar XML temporales generados
       ansible.windows.win_file:
