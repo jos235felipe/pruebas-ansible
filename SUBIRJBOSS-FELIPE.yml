@@ -23,7 +23,7 @@
       loop: "{{ jboss_tasks }}"
       loop_control:
         label: "{{ item.name }}"
-        pause: 5
+        pause: 15
       register: task_run
       changed_when: task_run.rc == 0
       failed_when: task_run.rc != 0
