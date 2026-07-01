@@ -3,6 +3,8 @@
 # Playbook: Crear tareas START_JBOSS en Task Scheduler\NOC
 # Target: Windows Server 2022
 # Requiere: colección ansible.windows (win_shell, win_stat, win_copy, win_file)
+# VARIABLES REQUERIDAS EN AWX (extra_vars / Survey):
+#   task_password: contraseña del usuario de ejecución (campo tipo password)
 # =============================================================
 - name: Crear tareas programadas START_JBOSS en carpeta NOC
   hosts: all
@@ -21,6 +23,13 @@
 
   tasks:
 
+    - name: Validar que la variable task_password fue proporcionada
+      ansible.builtin.fail:
+        msg: >
+          [ERROR] La variable 'task_password' es requerida y no fue proporcionada.
+          Agrégala como extra_var o Survey en el Job Template de AWX (campo tipo password).
+      when: task_password is not defined or task_password == ""
+
     - name: Obtener usuario dinámico de ejecución (whoami)
       ansible.windows.win_shell: whoami
       register: current_user_raw
@@ -32,7 +41,7 @@
 
     - name: Mostrar usuario que se usará como Principal de las tareas
       ansible.builtin.debug:
-        msg: "Usuario dinámico detectado para LogonType S4U: {{ exec_user }}"
+        msg: "Usuario dinámico detectado: {{ exec_user }} (LogonType=Password, sin S4U)"
 
     - name: Verificar si cada .bat existe en disco
       ansible.windows.win_stat:
@@ -44,13 +53,13 @@
 
     - name: Verificar si cada tarea ya existe en el Task Scheduler
       ansible.windows.win_shell: >
-        schtasks /Query /TN "\{{ noc_task_folder }}\{{ item.name }}" 2>nul
+        schtasks /Query /TN "\{{ noc_task_folder }}\{{ item.name }}" 2>$null
       loop: "{{ jboss_tasks }}"
       loop_control:
         label: "{{ item.name }}"
       register: task_check
       changed_when: false
-      failed_when: false   # un código != 0 significa "no existe", no es error
+      failed_when: false
 
     - name: Construir lista combinada de estado por tarea (bat existe / tarea existe)
       ansible.builtin.set_fact:
@@ -97,7 +106,8 @@
             <Principals>
               <Principal id="Author">
                 <UserId>{{ exec_user }}</UserId>
-                <LogonType>S4U</LogonType>
+                <!-- PASSWORD: Do not store password DESACTIVADO, credenciales almacenadas de forma segura -->
+                <LogonType>Password</LogonType>
                 <RunLevel>LeastPrivilege</RunLevel>
               </Principal>
             </Principals>
@@ -105,7 +115,8 @@
               <MultipleInstancesPolicy>Parallel</MultipleInstancesPolicy>
               <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
               <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-              <AllowHardTerminate>true</AllowHardTerminate>
+              <!-- FORCE STOP DESACTIVADO: no mata JBoss abruptamente -->
+              <AllowHardTerminate>false</AllowHardTerminate>
               <StartWhenAvailable>true</StartWhenAvailable>
               <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
               <IdleSettings>
@@ -135,21 +146,25 @@
 
     - name: Crear la tarea en Task Scheduler\NOC a partir del XML (sin ejecutarla)
       ansible.windows.win_shell: >
-        schtasks /Create /TN "\{{ noc_task_folder }}\{{ item.item.name }}"
+        schtasks /Create
+        /TN "\{{ noc_task_folder }}\{{ item.item.name }}"
         /XML "C:\Windows\Temp\{{ item.item.name }}.xml"
+        /RU "{{ exec_user }}"
+        /RP "{{ task_password }}"
       loop: "{{ xml_generated.results }}"
       loop_control:
         label: "{{ item.item.name }}"
       when: item is not skipped
       register: task_created
       changed_when: task_created.rc == 0
+      no_log: true   # Evita que la contraseña aparezca en los logs de AWX
       failed_when:
         - task_created.rc != 0
         - "'already exists' not in task_created.stderr"
 
     - name: Confirmar tareas creadas exitosamente
       ansible.builtin.debug:
-        msg: "[OK] Tarea \\{{ noc_task_folder }}\\{{ item.item.item.name }} creada correctamente."
+        msg: "[OK] Tarea \\{{ noc_task_folder }}\\{{ item.item.item.name }} creada correctamente (Password logon, force stop desactivado)."
       loop: "{{ task_created.results }}"
       loop_control:
         label: "{{ item.item.item.name }}"
