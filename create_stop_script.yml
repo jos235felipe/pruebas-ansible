@@ -60,18 +60,19 @@
           $JBOSS_CLI = "{{ jboss_base_path }}\jboss-eap-7.2\bin\jboss-cli.ps1"
           Write-Host "Apagando JBoss Principal..."
           & $JBOSS_CLI --connect --controller=localhost:9990 --command="shutdown"
-          Start-Sleep -Seconds 5
+          Start-Sleep -Seconds 20
 
           # -------- JBoss Secundario 1 --------
           $JBOSS_CLI = "{{ jboss_base_path }}\{{ jboss_secondary[0] }}\bin\jboss-cli.ps1"
           Write-Host "Apagando JBoss Secundario 1 ({{ jboss_secondary[0] }})..."
           & $JBOSS_CLI --connect --controller=localhost:10090 --command="shutdown"
-          Start-Sleep -Seconds 5
+          Start-Sleep -Seconds 20
 
           # -------- JBoss Secundario 2 --------
           $JBOSS_CLI = "{{ jboss_base_path }}\{{ jboss_secondary[1] }}\bin\jboss-cli.ps1"
           Write-Host "Apagando JBoss Secundario 2 ({{ jboss_secondary[1] }})..."
           & $JBOSS_CLI --connect --controller=localhost:10190 --command="shutdown"
+          Start-Sleep -Seconds 20
 
           Write-Host "==========================================="
           Write-Host "  APAGADO FINALIZADO CORRECTAMENTE"
