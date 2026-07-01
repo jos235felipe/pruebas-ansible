@@ -4,7 +4,7 @@
 # Target: Windows Server 2022
 # Requiere: colección ansible.windows (win_shell, win_stat, win_copy, win_file)
 # VARIABLES REQUERIDAS EN AWX (extra_vars / Survey):
-#   task_password: contraseña del usuario de ejecución (campo tipo password)
+#   task: contraseña del usuario de ejecución (campo tipo password)
 # =============================================================
 - name: Crear tareas programadas START_JBOSS en carpeta NOC
   hosts: all
@@ -23,12 +23,12 @@
 
   tasks:
 
-    - name: Validar que la variable task_password fue proporcionada
+    - name: Validar que la variable task fue proporcionada
       ansible.builtin.fail:
         msg: >
-          [ERROR] La variable 'task_password' es requerida y no fue proporcionada.
+          [ERROR] La variable 'task' es requerida y no fue proporcionada.
           Agrégala como extra_var o Survey en el Job Template de AWX (campo tipo password).
-      when: task_password is not defined or task_password == ""
+      when: task is not defined or task == ""
 
     - name: Obtener usuario dinámico de ejecución (whoami)
       ansible.windows.win_shell: whoami
