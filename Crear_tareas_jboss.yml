@@ -157,7 +157,7 @@
       when: item is not skipped
       register: task_created
       changed_when: task_created.rc == 0
-      no_log: true
+      no_log: false
       failed_when:
         - task_created.rc != 0
         - "'already exists' not in task_created.stderr"
