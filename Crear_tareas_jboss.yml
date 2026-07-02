@@ -21,26 +21,6 @@
       - name: "START_JBOSS_8281"
         bat_file: "START_JBOSS_8281.bat"
 
-        - name: Pre-procesar contraseña para caracteres especiales en PowerShell
-      ansible.builtin.set_fact:
-        task_noc_safe: "{{ task_noc | replace(\"'\", \"''\") }}"
-      no_log: true
-
-    - name: Crear la tarea en Task Scheduler\NOC a partir del XML (sin ejecutarla)
-      ansible.windows.win_shell: |
-        $taskPwd = '{{ task_noc_safe }}'
-        schtasks /Create /TN "\{{ noc_task_folder }}\{{ item.item.name }}" /XML "C:\Windows\Temp\{{ item.item.name }}.xml" /RU "{{ exec_user }}" /RP $taskPwd
-      loop: "{{ xml_generated.results }}"
-      loop_control:
-        label: "{{ item.item.name }}"
-      when: item is not skipped
-      register: task_created
-      changed_when: task_created.rc == 0
-      no_log: true
-      failed_when:
-        - task_created.rc != 0
-        - "'already exists' not in task_created.stderr"
-
   tasks:
 
     - name: Validar que la variable task_noc fue proporcionada
@@ -49,6 +29,11 @@
           [ERROR] La variable 'task_noc' es requerida y no fue proporcionada.
           Agrégala como extra_var o Survey en el Job Template de AWX (campo tipo password).
       when: task_noc is not defined or task_noc == ""
+
+    - name: Pre-procesar contraseña para caracteres especiales en PowerShell
+      ansible.builtin.set_fact:
+        task_noc_safe: "{{ task_noc | replace(\"'\", \"''\") }}"
+      no_log: true
 
     - name: Obtener usuario dinámico de ejecución (whoami)
       ansible.windows.win_shell: whoami
@@ -166,7 +151,7 @@
 
     - name: Crear la tarea en Task Scheduler\NOC a partir del XML (sin ejecutarla)
       ansible.windows.win_shell: |
-        $taskPwd = '{{ task_noc | replace("'", "''") }}'
+        $taskPwd = '{{ task_noc_safe }}'
         schtasks /Create /TN "\{{ noc_task_folder }}\{{ item.item.name }}" /XML "C:\Windows\Temp\{{ item.item.name }}.xml" /RU "{{ exec_user }}" /RP $taskPwd
       loop: "{{ xml_generated.results }}"
       loop_control:
