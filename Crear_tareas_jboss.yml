@@ -145,19 +145,16 @@
       register: xml_generated
 
     - name: Crear la tarea en Task Scheduler\NOC a partir del XML (sin ejecutarla)
-      ansible.windows.win_shell: >
-        schtasks /Create
-        /TN "\{{ noc_task_folder }}\{{ item.item.name }}"
-        /XML "C:\Windows\Temp\{{ item.item.name }}.xml"
-        /RU "{{ exec_user }}"
-        /RP "{{ task_noc }}"
+      ansible.windows.win_shell: |
+        $taskPwd = '{{ task_noc | replace("'", "''") }}'
+        schtasks /Create /TN "\{{ noc_task_folder }}\{{ item.item.name }}" /XML "C:\Windows\Temp\{{ item.item.name }}.xml" /RU "{{ exec_user }}" /RP $taskPwd
       loop: "{{ xml_generated.results }}"
       loop_control:
         label: "{{ item.item.name }}"
       when: item is not skipped
       register: task_created
       changed_when: task_created.rc == 0
-      no_log: false
+      no_log: true
       failed_when:
         - task_created.rc != 0
         - "'already exists' not in task_created.stderr"
