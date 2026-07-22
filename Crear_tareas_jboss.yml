@@ -98,7 +98,7 @@
         label: "{{ item.name }}"
       when: item.bat_exists and item.task_exists
 
-   - name: Generar XML temporal de definición de tarea (solo si aplica crear)
+    - name: Generar XML temporal de definición de tarea (solo si aplica crear)
       ansible.windows.win_copy:
         dest: "C:\\Windows\\Temp\\{{ item.name }}.xml"
         content: |
@@ -111,9 +111,7 @@
             <Principals>
               <Principal id="Author">
                 <UserId>{{ exec_user }}</UserId>
-                <!-- LogonType=Password: Do not store password DESACTIVADO -->
                 <LogonType>Password</LogonType>
-                <!-- HighestAvailable: Run with highest privileges ACTIVADO -->
                 <RunLevel>HighestAvailable</RunLevel>
               </Principal>
             </Principals>
@@ -121,7 +119,6 @@
               <MultipleInstancesPolicy>Parallel</MultipleInstancesPolicy>
               <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
               <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-              <!-- AllowHardTerminate=false: Force stop DESACTIVADO, protege JBoss/T24 -->
               <AllowHardTerminate>false</AllowHardTerminate>
               <StartWhenAvailable>true</StartWhenAvailable>
               <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
@@ -167,7 +164,7 @@
 
     - name: Confirmar tareas creadas exitosamente
       ansible.builtin.debug:
-        msg: "[OK] Tarea \\{{ noc_task_folder }}\\{{ item.item.item.name }} creada correctamente (force stop desactivado, sin S4U)."
+        msg: "[OK] Tarea \\{{ noc_task_folder }}\\{{ item.item.item.name }} creada correctamente."
       loop: "{{ task_created.results }}"
       loop_control:
         label: "{{ item.item.item.name }}"
