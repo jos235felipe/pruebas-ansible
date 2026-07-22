@@ -98,7 +98,7 @@
         label: "{{ item.name }}"
       when: item.bat_exists and item.task_exists
 
-    - name: Generar XML temporal de definición de tarea (solo si aplica crear)
+   - name: Generar XML temporal de definición de tarea (solo si aplica crear)
       ansible.windows.win_copy:
         dest: "C:\\Windows\\Temp\\{{ item.name }}.xml"
         content: |
@@ -113,7 +113,8 @@
                 <UserId>{{ exec_user }}</UserId>
                 <!-- LogonType=Password: Do not store password DESACTIVADO -->
                 <LogonType>Password</LogonType>
-                <RunLevel>LeastPrivilege</RunLevel>
+                <!-- HighestAvailable: Run with highest privileges ACTIVADO -->
+                <RunLevel>HighestAvailable</RunLevel>
               </Principal>
             </Principals>
             <Settings>
