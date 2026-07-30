@@ -1,40 +1,129 @@
 ---
-- name: STOP ALL JBOSS - T24 Standalone (dinámico por usuario AWX)
+- name: Detener JBoss (Dinámico) con Timeout y Kill Forzado
   hosts: all
   gather_facts: no
 
   vars:
-    user_home: 'C:\Users\{{ ansible_user }}'
-    script_path: '{{ user_home }}\Desktop\START_T24\STOP_ALL_JBOSS.ps1'
+    # Ruta base donde viven tus instancias
+    jboss_base_path: "C:\\Temenos\\R18\\3rdParty\\As"
+    # Tiempo máximo en segundos para esperar que una instancia baje normalmente antes de matarla
+    shutdown_timeout_seconds: 30
 
   tasks:
+    # ---------------------------------------------------------
+    # 1. DESCUBRIMIENTO DE INSTANCIAS
+    # ---------------------------------------------------------
+    - name: Identificar todas las instancias JBoss (Carpetas T24*)
+      ansible.windows.win_find:
+        paths: "{{ jboss_base_path }}"
+        file_type: directory
+        patterns: "T24*"
+      register: jboss_dirs
 
-    - name: Validar usuario efectivo de ejecución
-      win_shell: whoami
-      register: whoami_out
+    # ---------------------------------------------------------
+    # 2. APAGADO DINÁMICO (Shutdown -> Espera -> Kill si persiste)
+    # ---------------------------------------------------------
+    - name: Detener o matar cada instancia JBoss detectada
+      ansible.windows.win_shell: |
+        $instancePath = "{{ item.path }}"
+        $instanceName = "{{ item.filename }}"
+        $batFile = "{{ jboss_base_path }}\JBoss_${instanceName}_R20.bat"
+        $cliScript = "$instancePath\bin\jboss-cli.bat"
+        $timeout = {{ shutdown_timeout_seconds }}
 
-    - name: Mostrar usuario efectivo (control operativo)
-      debug:
-        msg: "Ejecutando STOP ALL JBOSS como: {{ whoami_out.stdout }}"
+        # 1. Calcular puerto de administración (Offset + 9990)
+        if (Test-Path $batFile) {
+            $content = Get-Content $batFile -Raw
+            if ($content -match "port-offset=(\d+)") {
+                $mgmtPort = 9990 + [int]$matches[1]
+            } else {
+                $mgmtPort = 9990
+            }
+        } else {
+            Write-Warning "No se halló .bat para $instanceName, usando puerto 9990"
+            $mgmtPort = 9990
+        }
 
-    - name: Validar existencia del script STOP_ALL_JBOSS.ps1
-      win_stat:
-        path: "{{ script_path }}"
-      register: stop_script
+        # 2. Obtener los PIDs asociados a la ruta de la instancia (Procesos Java/CMD)
+        # Buscamos procesos Java que tengan en la línea de comando la ruta de la instancia
+        $proc = Get-CimInstance Win32_Process -Filter "Name = 'java.exe'" | 
+                Where-Object { $_.CommandLine -like "*$instancePath*" }
 
-    - name: Fallar si el script no existe
-      fail:
-        msg: >
-          No se encontró el script STOP_ALL_JBOSS.ps1 en:
-          {{ script_path }}
-          Usuario detectado: {{ ansible_user }}
-      when: not stop_script.stat.exists
+        if (-not $proc) {
+            Write-Host "La instancia $instanceName ya se encuentra detenida."
+            exit 0
+        }
 
-    - name: Ejecutar script STOP_ALL_JBOSS.ps1
-      win_shell: |
-        powershell.exe -NoProfile -ExecutionPolicy Bypass -File "{{ script_path }}"
-      register: stop_jboss_result
+        $pidToKill = $proc.ProcessId
+        Write-Host "Instancia $instanceName detectada ejecutándose con PID: $pidToKill (Puerto Mgmt: $mgmtPort)"
 
-    - name: Mostrar salida del script
-      debug:
-        var: stop_jboss_result.stdout
+        # 3. Intentar Shutdown Graceful vía JBoss CLI
+        Write-Host "Enviando comando de shutdown a $instanceName..."
+        & "$cliScript" --connect --controller=localhost:$mgmtPort command=:shutdown 2>&1 | Out-Null
+
+        # 4. Monitorear si el proceso finaliza dentro del Timeout
+        $elapsed = 0
+        $stopped = $false
+
+        while ($elapsed -lt $timeout) {
+            $checkProc = Get-Process -Id $pidToKill -ErrorAction SilentlyContinue
+            if (-not $checkProc) {
+                $stopped = $true
+                break
+            }
+            Start-Sleep -Seconds 3
+            $elapsed += 3
+        }
+
+        # 5. Si no bajó en el tiempo límite, aplicar Kill Forzado
+        if ($stopped) {
+            Write-Host "$instanceName bajó correctamente de forma suave."
+        } else {
+            Write-Warning "Timeout de ${timeout}s alcanzado para $instanceName. Forzando cierre (Kill PID $pidToKill)..."
+            
+            # Cierre forzado del proceso Java y su árbol de consola
+            Stop-Process -Id $pidToKill -Force -ErrorAction SilentlyContinue
+            
+            # Limpieza adicional: matar CMDs o procesos huérfanos asociados a esa carpeta si existieran
+            Get-CimInstance Win32_Process | 
+                Where-Object { $_.CommandLine -like "*$instancePath*" } | 
+                ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+        }
+      loop: "{{ jboss_dirs.files }}"
+      ignore_errors: yes
+
+    # ---------------------------------------------------------
+    # 3. LIMPIEZA DE CARPETAS (tmp, data, log)
+    # ---------------------------------------------------------
+    - name: Borrar carpetas tmp, data y log de cada instancia
+      ansible.windows.win_file:
+        path: "{{ item.0.path }}\\standalone\\{{ item.1 }}"
+        state: absent
+      loop: "{{ jboss_dirs.files | product(['tmp', 'data', 'log']) | list }}"
+      ignore_errors: yes
+
+    # ---------------------------------------------------------
+    # 4. ELIMINAR ARCHIVOS DE ESTADO (.deployed, .failed, etc)
+    # ---------------------------------------------------------
+    - name: Limpiar marcadores de despliegue en cada instancia
+      ansible.windows.win_shell: |
+        $deployDir = "{{ item.path }}\standalone\deployments"
+        
+        if (Test-Path $deployDir) {
+            Write-Host "Limpiando marcadores en: $deployDir"
+            Remove-Item -Path "$deployDir\*.deployed" -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path "$deployDir\*.undeployed" -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path "$deployDir\*.failed" -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path "$deployDir\*.isdeploying" -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path "$deployDir\*.dodeploy" -Force -ErrorAction SilentlyContinue
+        }
+      loop: "{{ jboss_dirs.files }}"
+
+    # ---------------------------------------------------------
+    # 5. RECREAR CARPETA LOGS
+    # ---------------------------------------------------------
+    - name: Recrear carpeta logs vacía
+      ansible.windows.win_file:
+        path: "{{ item.path }}\\standalone\\log"
+        state: directory
+      loop: "{{ jboss_dirs.files }}"
