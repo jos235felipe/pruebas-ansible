@@ -11,40 +11,46 @@
   tasks:
 
     # ---------------------------------------------------------
-    # 1. LIMPIEZA LOGS TAFJ (Validando existencia)
+    # 1. LIMPIEZA LOGS TAFJ
     # ---------------------------------------------------------
-    - name: Borrar logs de TAFJ
-      win_shell: |
-        if (Test-Path "{{ tafj_log }}") {
-            Get-ChildItem -Path "{{ tafj_log }}" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
-        }
-      register: tafj_clean
-      changed_when: true
+    - name: Eliminar carpeta de logs TAFJ
+      ansible.windows.win_file:
+        path: "{{ tafj_log }}"
+        state: absent
+      ignore_errors: yes
+
+    - name: Recrear carpeta de logs TAFJ vacía
+      ansible.windows.win_file:
+        path: "{{ tafj_log }}"
+        state: directory
 
     - name: Confirmar limpieza de logs TAFJ
       ansible.builtin.debug:
-        msg: "[OK] Logs de TAFJ procesados en: {{ tafj_log }}"
+        msg: "[OK] Carpeta de logs TAFJ reiniciada en: {{ tafj_log }}"
 
     # ---------------------------------------------------------
     # 2. LIMPIEZA LOGS JBOSS PRINCIPAL
     # ---------------------------------------------------------
-    - name: Borrar logs de JBoss principal (jboss-eap-7.2)
-      win_shell: |
-        if (Test-Path "{{ jboss_principal_log }}") {
-            Get-ChildItem -Path "{{ jboss_principal_log }}" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
-        }
-      register: principal_clean
-      changed_when: true
+    - name: Eliminar carpeta de logs JBoss principal
+      ansible.windows.win_file:
+        path: "{{ jboss_principal_log }}"
+        state: absent
+      ignore_errors: yes
+
+    - name: Recrear carpeta de logs JBoss principal vacía
+      ansible.windows.win_file:
+        path: "{{ jboss_principal_log }}"
+        state: directory
 
     - name: Confirmar limpieza de logs JBoss principal
       ansible.builtin.debug:
-        msg: "[OK] Logs de JBoss principal procesados en: {{ jboss_principal_log }}"
+        msg: "[OK] Carpeta de logs JBoss principal reiniciada en: {{ jboss_principal_log }}"
 
     # ---------------------------------------------------------
     # 3. DETECCIÓN Y FILTRADO DE SECUNDARIOS
     # ---------------------------------------------------------
     - name: Detectar JBoss secundarios (T24Prod01* y T24Prod02*)
-      win_find:
+      ansible.windows.win_find:
         paths: "{{ jboss_root }}"
         file_type: directory
       register: jboss_dirs
@@ -69,21 +75,28 @@
     # ---------------------------------------------------------
     # 4. LIMPIEZA LOGS JBOSS SECUNDARIOS
     # ---------------------------------------------------------
-    - name: Borrar logs de JBoss secundarios
-      win_shell: |
-        $secPath = "{{ jboss_root }}\\{{ item }}\\standalone\\log"
-        if (Test-Path $secPath) {
-            Get-ChildItem -Path $secPath -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
-        }
+    - name: Eliminar carpetas de logs de JBoss secundarios
+      ansible.windows.win_file:
+        path: "{{ jboss_root }}\\{{ item }}\\standalone\\log"
+        state: absent
       loop: "{{ jboss_secundarios }}"
       loop_control:
         label: "{{ item }}"
       when: jboss_secundarios | length > 0
-      changed_when: true
+      ignore_errors: yes
+
+    - name: Recrear carpetas de logs de JBoss secundarios vacías
+      ansible.windows.win_file:
+        path: "{{ jboss_root }}\\{{ item }}\\standalone\\log"
+        state: directory
+      loop: "{{ jboss_secundarios }}"
+      loop_control:
+        label: "{{ item }}"
+      when: jboss_secundarios | length > 0
 
     - name: Confirmar limpieza de logs JBoss secundarios
       ansible.builtin.debug:
-        msg: "[OK] Logs procesados en: {{ jboss_root }}\\{{ item }}\\standalone\\log"
+        msg: "[OK] Carpeta de logs reiniciada en: {{ jboss_root }}\\{{ item }}\\standalone\\log"
       loop: "{{ jboss_secundarios }}"
       loop_control:
         label: "{{ item }}"
