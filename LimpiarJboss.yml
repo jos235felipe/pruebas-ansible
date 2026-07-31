@@ -10,26 +10,39 @@
 
   tasks:
 
+    # ---------------------------------------------------------
+    # 1. LIMPIEZA LOGS TAFJ (Validando existencia)
+    # ---------------------------------------------------------
     - name: Borrar logs de TAFJ
       win_shell: |
-        Remove-Item -Path "{{ tafj_log }}\*" -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path "{{ tafj_log }}") {
+            Get-ChildItem -Path "{{ tafj_log }}" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
+        }
       register: tafj_clean
       changed_when: true
 
     - name: Confirmar limpieza de logs TAFJ
       ansible.builtin.debug:
-        msg: "[OK] Logs de TAFJ borrados en: {{ tafj_log }}"
+        msg: "[OK] Logs de TAFJ procesados en: {{ tafj_log }}"
 
+    # ---------------------------------------------------------
+    # 2. LIMPIEZA LOGS JBOSS PRINCIPAL
+    # ---------------------------------------------------------
     - name: Borrar logs de JBoss principal (jboss-eap-7.2)
       win_shell: |
-        Remove-Item -Path "{{ jboss_principal_log }}\*" -Recurse -Force -ErrorAction SilentlyContinue
+        if (Test-Path "{{ jboss_principal_log }}") {
+            Get-ChildItem -Path "{{ jboss_principal_log }}" -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
+        }
       register: principal_clean
       changed_when: true
 
     - name: Confirmar limpieza de logs JBoss principal
       ansible.builtin.debug:
-        msg: "[OK] Logs de JBoss principal borrados en: {{ jboss_principal_log }}"
+        msg: "[OK] Logs de JBoss principal procesados en: {{ jboss_principal_log }}"
 
+    # ---------------------------------------------------------
+    # 3. DETECCIÓN Y FILTRADO DE SECUNDARIOS
+    # ---------------------------------------------------------
     - name: Detectar JBoss secundarios (T24Prod01* y T24Prod02*)
       win_find:
         paths: "{{ jboss_root }}"
@@ -53,9 +66,15 @@
         msg: "[INFO] Este servidor no tiene JBoss secundarios. Solo se limpiaron TAFJ y JBoss principal."
       when: jboss_secundarios | length == 0
 
+    # ---------------------------------------------------------
+    # 4. LIMPIEZA LOGS JBOSS SECUNDARIOS
+    # ---------------------------------------------------------
     - name: Borrar logs de JBoss secundarios
       win_shell: |
-        Remove-Item -Path "{{ jboss_root }}\{{ item }}\standalone\log\*" -Recurse -Force -ErrorAction SilentlyContinue
+        $secPath = "{{ jboss_root }}\\{{ item }}\\standalone\\log"
+        if (Test-Path $secPath) {
+            Get-ChildItem -Path $secPath -Recurse -ErrorAction SilentlyContinue | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
+        }
       loop: "{{ jboss_secundarios }}"
       loop_control:
         label: "{{ item }}"
@@ -64,12 +83,15 @@
 
     - name: Confirmar limpieza de logs JBoss secundarios
       ansible.builtin.debug:
-        msg: "[OK] Logs borrados en: {{ jboss_root }}\\{{ item }}\\standalone\\log"
+        msg: "[OK] Logs procesados en: {{ jboss_root }}\\{{ item }}\\standalone\\log"
       loop: "{{ jboss_secundarios }}"
       loop_control:
         label: "{{ item }}"
       when: jboss_secundarios | length > 0
 
+    # ---------------------------------------------------------
+    # 5. RESUMEN FINAL
+    # ---------------------------------------------------------
     - name: Resumen final de limpieza
       ansible.builtin.debug:
         msg:
