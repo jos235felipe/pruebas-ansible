@@ -1,11 +1,11 @@
 ---
 # =============================================================
-# Playbook: Crear tareas START TCIB NODO 1 y NODO 2 en Task Scheduler\NOC
+# Playbook: Crear scripts START JBoss NODO 1 y NODO 2 en Task Scheduler\NOC
 # Target: Servidor MICOOPE en Línea
 # VARIABLES REQUERIDAS EN AWX (extra_vars / Survey):
 #   task_noc: contraseña del usuario de ejecución (campo tipo password)
 # =============================================================
-- name: Crear tareas programadas START TCIB en carpeta NOC
+- name: Crear tareas programadas START NODO 1 y NODO 2 en carpeta NOC
   hosts: all
   gather_facts: false
 
@@ -13,10 +13,10 @@
     noc_task_folder: "NOC"
     noc_base: "C:\\NOC"
     tcib_tasks:
-      - name: "START_TCIB_NODO1"
-        bat_file: "START_TCIB_NODO1.bat"
-      - name: "START_TCIB_NODO2"
-        bat_file: "START_TCIB_NODO2.bat"
+      - name: "START_NODO1"
+        bat_file: "START_NODO1.bat"
+      - name: "START_NODO2"
+        bat_file: "START_NODO2.bat"
 
   tasks:
 
