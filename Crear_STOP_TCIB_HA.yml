@@ -1,0 +1,88 @@
+---
+# =============================================================
+# Playbook: Crear script STOP_NODOS.ps1 para NODO 1 y NODO 2
+# Target: Servidor MICOOPE en Línea
+# Puertos: NODO 1 → 9990 | NODO 2 → 10090
+# =============================================================
+- name: Crear script STOP_NODOS.ps1
+  hosts: all
+  gather_facts: no
+
+  vars:
+    noc_base: "C:\\NOC"
+    script_path: "C:\\NOC\\STOP_NODOS.ps1"
+    nodo1_cli: "C:\\Temenos\\R18\\jboss-eap-7.1\\bin\\jboss-cli.ps1"
+    nodo2_cli: "C:\\Temenos\\R18\\TCIBNODO2\\bin\\jboss-cli.ps1"
+
+  tasks:
+
+    - name: Validar usuario efectivo de ejecución
+      ansible.windows.win_shell: whoami
+      register: whoami_out
+      changed_when: false
+
+    - name: Mostrar usuario efectivo (debug controlado)
+      ansible.builtin.debug:
+        msg: "Playbook ejecutado como: {{ whoami_out.stdout | trim }}"
+
+    - name: Asegurar que existe la carpeta C:\NOC
+      ansible.windows.win_file:
+        path: "{{ noc_base }}"
+        state: directory
+
+    - name: Verificar que existe el CLI del NODO 1
+      ansible.windows.win_stat:
+        path: "{{ nodo1_cli }}"
+      register: cli_nodo1
+
+    - name: Verificar que existe el CLI del NODO 2
+      ansible.windows.win_stat:
+        path: "{{ nodo2_cli }}"
+      register: cli_nodo2
+
+    - name: Fallar si no se encuentra el CLI del NODO 1
+      ansible.builtin.fail:
+        msg: >
+          [ERROR] No se encontró el CLI del NODO 1 en:
+          {{ nodo1_cli }}
+          Verifica que JBoss EAP 7.1 está instalado correctamente.
+      when: not cli_nodo1.stat.exists
+
+    - name: Fallar si no se encuentra el CLI del NODO 2
+      ansible.builtin.fail:
+        msg: >
+          [ERROR] No se encontró el CLI del NODO 2 en:
+          {{ nodo2_cli }}
+          Verifica que TCIBNODO2 está instalado correctamente.
+      when: not cli_nodo2.stat.exists
+
+    - name: Crear script STOP_NODOS.ps1
+      ansible.windows.win_copy:
+        dest: "{{ script_path }}"
+        content: |
+          Write-Host "==========================================="
+          Write-Host "  INICIO APAGADO AUTOMATICO NODOS HA"
+          Write-Host "==========================================="
+
+          # -------- NODO 1 (Puerto 9990) --------
+          $JBOSS_CLI_NODO1 = "{{ nodo1_cli }}"
+          Write-Host "Apagando NODO 1 (puerto 9990)..."
+          & $JBOSS_CLI_NODO1 --connect --controller=localhost:9990 --command="shutdown"
+          Start-Sleep -Seconds 20
+
+          # -------- NODO 2 (Puerto 10090) --------
+          $JBOSS_CLI_NODO2 = "{{ nodo2_cli }}"
+          Write-Host "Apagando NODO 2 (puerto 10090)..."
+          & $JBOSS_CLI_NODO2 --connect --controller=localhost:10090 --command="shutdown"
+          Start-Sleep -Seconds 20
+
+          Write-Host "==========================================="
+          Write-Host "  APAGADO FINALIZADO CORRECTAMENTE"
+          Write-Host "==========================================="
+
+    - name: Confirmar script creado
+      ansible.builtin.debug:
+        msg:
+          - "[OK] Script creado en: {{ script_path }}"
+          - "[OK] NODO 1 CLI: {{ nodo1_cli }} → puerto 9990"
+          - "[OK] NODO 2 CLI: {{ nodo2_cli }} → puerto 10090"
