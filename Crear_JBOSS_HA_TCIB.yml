@@ -1,134 +1,187 @@
 ---
 # =============================================================
-# Playbook: Crear scripts START JBoss TCIB HA (Nodo 1 y Nodo 2)
-# Target: Servidor MICOOPE en Línea (único servidor)
-# Crea 3 archivos .bat en C:\NOC:
-#   - Environment.bat
-#   - START_TCIB_NODO1.bat
-#   - START_TCIB_NODO2.bat
+# Playbook: Crear scripts START JBoss NODO 1 y NODO 2 en Task Scheduler\NOC
+# Target: Servidor MICOOPE en Línea
+# VARIABLES REQUERIDAS EN AWX (extra_vars / Survey):
+#   task_noc: contraseña del usuario de ejecución (campo tipo password)
 # =============================================================
-- name: Crear scripts START JBoss TCIB HA
+- name: Crear tareas programadas START NODO 1 y NODO 2 en carpeta NOC
   hosts: all
-  gather_facts: no
+  gather_facts: false
 
   vars:
+    noc_task_folder: "NOC"
     noc_base: "C:\\NOC"
+    tcib_tasks:
+      - name: "START_NODO1"
+        bat_file: "START_NODO1.bat"
+      - name: "START_NODO2"
+        bat_file: "START_NODO2.bat"
 
   tasks:
 
-    - name: Asegurar que existe la carpeta C:\NOC
-      ansible.windows.win_file:
-        path: "{{ noc_base }}"
-        state: directory
+    - name: Validar que la variable task_noc fue proporcionada
+      ansible.builtin.fail:
+        msg: >
+          [ERROR] La variable 'task_noc' es requerida y no fue proporcionada.
+          Agrégala como extra_var o Survey en el Job Template de AWX (campo tipo password).
+      when: task_noc is not defined or task_noc == ""
 
-    - name: Crear Environment.bat
-      ansible.windows.win_copy:
-        dest: "{{ noc_base }}\\Environment.bat"
-        content: |
-          @echo off
-          TITLE TAFJ Shell
-          set JAVA_HOME=C:\Temenos\R18\Java\jdk1.8.0_181
-          set PATH=%JAVA_HOME%\bin;%PATH%
-          set JBCJVMLIB=C:\Temenos\R18\Java\jdk1.8.0_181\jre\bin\server\jvm.dll
-          set CLASSPATH=C:\windows\system32;
+    - name: Pre-procesar contraseña para caracteres especiales en PowerShell
+      ansible.builtin.set_fact:
+        task_noc_safe: "{{ task_noc | replace(\"'\", \"''\") }}"
+      no_log: true
 
-    - name: Crear START_TCIB_NODO1.bat
-      ansible.windows.win_copy:
-        dest: "{{ noc_base }}\\START_TCIB_NODO1.bat"
-        content: |
-          @echo off
-          echo Iniciando TCIB Nodo 1 (HA)...
-          call Environment.bat
-          rem ========================================
-          rem JVM HEAP & ENGINE CONFIGURATION (HA)
-          rem ========================================
-          set "JAVA_OPTS=%JAVA_OPTS% -Xms20g -Xmx20g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+ParallelRefProcEnabled"
-          set "JAVA_OPTS=%JAVA_OPTS% -Dsun.rmi.transport.tcp.responseTimeout=30000 -Dorg.apache.tomcat.util.http.Parameters.MAX_COUNT=5000 -Djboss.as.management.blocking.timeout=300"
-          set "JAVA_OPTS=%JAVA_OPTS% -Djava.net.preferIPv4Stack=true"
-          rem ========================================
-          rem OpenTelemetry Java Agent - PRODUCCIÓN HA
-          rem ========================================
-          set "JAVA_OPTS=%JAVA_OPTS% -javaagent:C:\telemetry\opentelemetry-javaagent.jar"
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.service.name=TCIB125_1"
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.resource.attributes=service.version=7.1,deployment.environment=production,client=TCIB,host.name=%COMPUTERNAME%,jboss.instance=TCIB125_1"
-          rem Endpoint OTLP HTTP (Alloy Local)
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.exporter.otlp.endpoint=http://localhost:4318"
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.exporter.otlp.protocol=http/protobuf"
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.traces.exporter=otlp"
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.metrics.exporter=otlp"
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.logs.exporter=none"
-          rem Correlación y Sampling (5%)
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.instrumentation.log4j-appender.experimental.capture-mdc-attributes=*"
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.instrumentation.logback-appender.experimental.capture-mdc-attributes=*"
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.traces.sampler=parentbased_traceidratio"
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.traces.sampler.arg=0.05"
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.metric.export.interval=60000"
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.bsp.schedule.delay=5000"
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.javaagent.debug=false"
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.instrumentation.jvm.enabled=true"
-          rem ========================================
-          rem ARRANQUE JBOSS - NODO 1
-          rem ========================================
-          start "TCIB_NODO_1" C:\Temenos\R18\jboss-eap-7.1\bin\standalone.bat --server-config=t24-ha.xml -b 0.0.0.0 -bmanagement 0.0.0.0 -bprivate 127.0.0.1 -Djboss.node.name=TCIB_NODO_1
-          exit /b 0
+    - name: Obtener usuario dinámico de ejecución (whoami)
+      ansible.windows.win_shell: whoami
+      register: current_user_raw
+      changed_when: false
 
-    - name: Crear START_TCIB_NODO2.bat
-      ansible.windows.win_copy:
-        dest: "{{ noc_base }}\\START_TCIB_NODO2.bat"
-        content: |
-          @echo off
-          echo Iniciando TCIB Nodo 2...
-          call Environment.bat
-          rem ========================================
-          rem JVM HEAP CONFIGURATION
-          rem ========================================
-          set "JAVA_OPTS=%JAVA_OPTS% -Xms20g -Xmx20g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+ParallelRefProcEnabled"
-          set "JAVA_OPTS=%JAVA_OPTS% -Dsun.rmi.transport.tcp.responseTimeout=30000 -Dorg.apache.tomcat.util.http.Parameters.MAX_COUNT=5000 -Djboss.as.management.blocking.timeout=300"
-          rem Opcional pero recomendado para G1GC
-          set "JAVA_OPTS=%JAVA_OPTS% -XX:+ParallelRefProcEnabled"
-          set "JAVA_OPTS=%JAVA_OPTS% -XX:MaxGCPauseMillis=200"
-          rem ========================================
-          rem OpenTelemetry Java Agent - PRODUCCIÓN
-          rem JBoss: TCIB (o el nombre de tu instancia)
-          rem ========================================
-          rem 1. RUTA DEL AGENTE (Asegúrate de que el .jar exista aquí)
-          set "JAVA_OPTS=%JAVA_OPTS% -javaagent:C:\telemetry\opentelemetry-javaagent.jar"
-          rem 2. INFORMACIÓN DEL SERVICIO (Etiquetas base)
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.service.name=TCIB125_2"
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.resource.attributes=service.version=7.1,deployment.environment=production,client=TCIB,host.name=%COMPUTERNAME%,jboss.instance=TCIB125_2"
-          rem ========================================
-          rem 3. ENDPOINT: Apuntar al Alloy Local (Puerto 4318 OTLP HTTP)
-          rem ========================================
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.exporter.otlp.endpoint=http://localhost:4318"
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.exporter.otlp.protocol=http/protobuf"
-          rem Exportadores (Qué vamos a enviar)
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.traces.exporter=otlp"
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.metrics.exporter=otlp"
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.logs.exporter=none"
-          rem ========================================
-          rem 4. CORRELACIÓN DE LOGS (Inyecta trace_id en el server.log)
-          rem ========================================
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.instrumentation.log4j-appender.experimental.capture-mdc-attributes=*"
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.instrumentation.logback-appender.experimental.capture-mdc-attributes=*"
-          rem ========================================
-          rem 5. SAMPLING Y RENDIMIENTO (Protege tu CPU y Red)
-          rem ========================================
-          rem Solo captura el 5% de las trazas nuevas para no saturar Tempo
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.traces.sampler=parentbased_traceidratio"
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.traces.sampler.arg=0.05"
-          rem Relaja el Garbage Collector enviando métricas cada 60 segundos
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.metric.export.interval=60000"
-          set "JAVA_OPTS=%JAVA_OPTS% -Dotel.bsp.schedule.delay=5000"
-          rem 1. Definimos la ruta de tu nueva configuracion (Nodo 2)
-          set "SERVER_BASE_DIR=C:\Temenos\R18\TCIBNODO2\standalone"
-          rem 2. Llamamos al MISMO motor de JBoss del Nodo 1, pero le inyectamos la nueva ruta y el offset de puertos
-          set "JAVA_OPTS=%JAVA_OPTS% -Djava.net.preferIPv4Stack=true"
-          start "TCIB_NODO_2" C:\Temenos\R18\TCIBNODO2\bin\standalone.bat -Djboss.server.base.dir="%SERVER_BASE_DIR%" --server-config=t24-ha.xml -b 0.0.0.0 -bmanagement 0.0.0.0 -bprivate 127.0.0.1 -Djboss.socket.binding.port-offset=100 -Djboss.node.name=TCIB_NODO_2
-          exit /b 0
+    - name: Fijar variable con el usuario detectado
+      ansible.builtin.set_fact:
+        exec_user: "{{ current_user_raw.stdout | trim }}"
 
-    - name: Confirmar archivos creados
+    - name: Mostrar usuario que se usará como Principal de las tareas
       ansible.builtin.debug:
-        msg:
-          - "[OK] {{ noc_base }}\\Environment.bat"
-          - "[OK] {{ noc_base }}\\START_TCIB_NODO1.bat"
-          - "[OK] {{ noc_base }}\\START_TCIB_NODO2.bat"
+        msg: "Usuario dinámico detectado: {{ exec_user }} (LogonType=Password, sin S4U)"
+
+    - name: Verificar si cada .bat existe en disco
+      ansible.windows.win_stat:
+        path: "{{ noc_base }}\\{{ item.bat_file }}"
+      loop: "{{ tcib_tasks }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: bat_check
+
+    - name: Verificar si cada tarea ya existe en el Task Scheduler
+      ansible.windows.win_shell: >
+        schtasks /Query /TN "\{{ noc_task_folder }}\{{ item.name }}" 2>$null
+      loop: "{{ tcib_tasks }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: task_check
+      changed_when: false
+      failed_when: false
+
+    - name: Construir lista combinada de estado por tarea (bat existe / tarea existe)
+      ansible.builtin.set_fact:
+        task_status: "{{ task_status | default([]) + [ {
+            'name': item.0.item.name,
+            'bat_file': item.0.item.bat_file,
+            'bat_exists': item.0.stat.exists,
+            'task_exists': (item.1.rc == 0)
+          } ] }}"
+      loop: "{{ bat_check.results | zip(task_check.results) | list }}"
+      loop_control:
+        label: "{{ item.0.item.name }}"
+
+    - name: Avisar y SKIP — archivo .bat no encontrado
+      ansible.builtin.debug:
+        msg: >
+          [SKIP] No se encontró el archivo {{ noc_base }}\{{ item.bat_file }}
+          para la tarea {{ item.name }}. No se creará esta tarea.
+      loop: "{{ task_status }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: not item.bat_exists
+
+    - name: Avisar y SKIP — la tarea ya existe (detectada antes de crear)
+      ansible.builtin.debug:
+        msg: >
+          [SKIP] La tarea \{{ noc_task_folder }}\{{ item.name }} ya existe en el
+          Task Scheduler. No se vuelve a crear (no se sobrescribe).
+      loop: "{{ task_status }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: item.bat_exists and item.task_exists
+
+    - name: Generar XML temporal de definición de tarea (solo si aplica crear)
+      ansible.windows.win_copy:
+        dest: "C:\\Windows\\Temp\\{{ item.name }}.xml"
+        content: |
+          <?xml version="1.0" encoding="UTF-16"?>
+          <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+            <RegistrationInfo>
+              <Description>Tarea NOC - {{ item.name }} (creada via Ansible)</Description>
+            </RegistrationInfo>
+            <Triggers />
+            <Principals>
+              <Principal id="Author">
+                <UserId>{{ exec_user }}</UserId>
+                <LogonType>Password</LogonType>
+                <RunLevel>HighestAvailable</RunLevel>
+              </Principal>
+            </Principals>
+            <Settings>
+              <MultipleInstancesPolicy>Parallel</MultipleInstancesPolicy>
+              <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+              <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+              <AllowHardTerminate>false</AllowHardTerminate>
+              <StartWhenAvailable>true</StartWhenAvailable>
+              <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+              <IdleSettings>
+                <StopOnIdleEnd>false</StopOnIdleEnd>
+                <RestartOnIdle>false</RestartOnIdle>
+              </IdleSettings>
+              <AllowStartOnDemand>true</AllowStartOnDemand>
+              <Enabled>true</Enabled>
+              <Hidden>false</Hidden>
+              <RunOnlyIfIdle>false</RunOnlyIfIdle>
+              <WakeToRun>false</WakeToRun>
+              <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+              <Priority>7</Priority>
+            </Settings>
+            <Actions Context="Author">
+              <Exec>
+                <Command>{{ noc_base }}\{{ item.bat_file }}</Command>
+                <WorkingDirectory>{{ noc_base }}</WorkingDirectory>
+              </Exec>
+            </Actions>
+          </Task>
+      loop: "{{ task_status }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: item.bat_exists and not item.task_exists
+      register: xml_generated
+
+    - name: Crear la tarea en Task Scheduler\NOC a partir del XML (sin ejecutarla)
+      ansible.windows.win_shell: |
+        $taskPwd = '{{ task_noc_safe }}'
+        schtasks /Create /TN "\{{ noc_task_folder }}\{{ item.item.name }}" /XML "C:\Windows\Temp\{{ item.item.name }}.xml" /RU "{{ exec_user }}" /RP $taskPwd
+      loop: "{{ xml_generated.results }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+      when: item is not skipped
+      register: task_created
+      changed_when: task_created.rc == 0
+      no_log: true
+      failed_when:
+        - task_created.rc != 0
+        - "'already exists' not in task_created.stderr"
+
+    - name: Confirmar tareas creadas exitosamente
+      ansible.builtin.debug:
+        msg: "[OK] Tarea \\{{ noc_task_folder }}\\{{ item.item.item.name }} creada correctamente."
+      loop: "{{ task_created.results }}"
+      loop_control:
+        label: "{{ item.item.item.name }}"
+      when: item is not skipped and item.rc == 0
+
+    - name: Avisar y SKIP — la tarea ya existía al momento de crearla (detección tardía)
+      ansible.builtin.debug:
+        msg: >
+          [SKIP] La tarea \{{ noc_task_folder }}\{{ item.item.item.name }} ya existía
+          en el Task Scheduler al momento de crearla. No se modificó.
+      loop: "{{ task_created.results }}"
+      loop_control:
+        label: "{{ item.item.item.name }}"
+      when: item is not skipped and item.rc != 0
+
+    - name: Limpiar XML temporales generados
+      ansible.windows.win_file:
+        path: "C:\\Windows\\Temp\\{{ item.name }}.xml"
+        state: absent
+      loop: "{{ task_status }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: item.bat_exists and not item.task_exists
